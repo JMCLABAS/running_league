@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart'; // Importamos el mapa
-import 'package:latlong2/latlong.dart'; // Importamos coordenadas
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart'; // Importamos el GPS
 
 void main() {
   runApp(const RunningLeagueApp());
@@ -22,56 +23,87 @@ class RunningLeagueApp extends StatelessWidget {
   }
 }
 
-class MapScreen extends StatelessWidget {
+// CAMBIO IMPORTANTE: Ahora usamos StatefulWidget porque el mapa se va a mover
+class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
+
+  @override
+  State<MapScreen> createState() => _MapScreenState();
+}
+
+class _MapScreenState extends State<MapScreen> {
+  // Este "controlador" es como el mando a distancia del mapa
+  final MapController _mapController = MapController();
+  
+  // Variable para guardar dónde estamos (empieza siendo null)
+  LatLng? _myLocation;
+
+  // Función mágica para pedir permiso y obtener coordenadas
+  Future<void> _getCurrentLocation() async {
+    // 1. Verificar si los servicios de ubicación están activados
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return Future.error('El GPS está desactivado.');
+    }
+
+    // 2. Pedir permiso al usuario
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return Future.error('Permisos denegados');
+      }
+    }
+
+    // 3. Obtener la posición actual
+    Position position = await Geolocator.getCurrentPosition();
+    
+    // 4. Actualizar el estado de la app
+    setState(() {
+      _myLocation = LatLng(position.latitude, position.longitude);
+    });
+
+    // 5. Mover el mapa a tu posición
+    _mapController.move(_myLocation!, 17.0); // 17 es mucho zoom
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Running League'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
-      ),
-      // AQUÍ ESTÁ LA MAGIA: Sustituimos el texto por el Mapa
+      appBar: AppBar(title: const Text('Running League GPS')),
       body: FlutterMap(
+        mapController: _mapController, // Conectamos el mando a distancia
         options: const MapOptions(
-          // Coordenadas iniciales (Ejemplo: Puerta del Sol, Madrid)
-          // Puedes cambiarlas por las de tu ciudad
-          initialCenter: LatLng(40.4168, -3.7038),
+          initialCenter: LatLng(40.4168, -3.7038), // Madrid por defecto
           initialZoom: 15.0,
         ),
         children: [
           TileLayer(
-            // Usamos los mapas gratuitos de OpenStreetMap
             urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             userAgentPackageName: 'com.running.league',
           ),
-          // Aquí en el futuro añadiremos la línea roja de tu ruta (PolylineLayer)
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.running.league',
-          ),
-          
-          // --- AÑADE ESTO DESDE AQUÍ ---
-          PolylineLayer(
-            polylines: [
-              Polyline(
-                points: [
-                  // Vamos a simular una ruta por el centro de Madrid
-                  LatLng(40.4168, -3.7038), // Puerta del Sol
-                  LatLng(40.4170, -3.7035),
-                  LatLng(40.4175, -3.7040),
-                  LatLng(40.4180, -3.7050),
-                  LatLng(40.4190, -3.7060), // Callao aprox
-                ],
-                color: Colors.blue, // Color de la línea
-                strokeWidth: 5.0,   // Grosor de la línea
-              ),
-            ],
-          ),
-          // --- HASTA AQUÍ ---
+          // Si tenemos ubicación, pintamos un marcador (un punto azul)
+          if (_myLocation != null)
+            MarkerLayer(
+              markers: [
+                Marker(
+                  point: _myLocation!,
+                  width: 80,
+                  height: 80,
+                  child: const Icon(
+                    Icons.location_pin,
+                    color: Colors.red,
+                    size: 40,
+                  ),
+                ),
+              ],
+            ),
         ],
+      ),
+      // Botón flotante para activar el GPS
+      floatingActionButton: FloatingActionButton(
+        onPressed: _getCurrentLocation, // Al pulsar, llama a la función GPS
+        child: const Icon(Icons.my_location),
       ),
     );
   }
