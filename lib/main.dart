@@ -138,7 +138,7 @@ class _MapScreenState extends State<MapScreen> {
               ],
             ),
 
-          // CAPA 3: Tu ubicación (Muñeco/Punto)
+          // CAPA 3 : Tu ubicación (Muñeco/Punto)
           if (_currentPosition != null)
             MarkerLayer(
               markers: [
