@@ -48,6 +48,29 @@ class MapScreen extends StatelessWidget {
             userAgentPackageName: 'com.running.league',
           ),
           // Aquí en el futuro añadiremos la línea roja de tu ruta (PolylineLayer)
+          TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.running.league',
+          ),
+          
+          // --- AÑADE ESTO DESDE AQUÍ ---
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: [
+                  // Vamos a simular una ruta por el centro de Madrid
+                  LatLng(40.4168, -3.7038), // Puerta del Sol
+                  LatLng(40.4170, -3.7035),
+                  LatLng(40.4175, -3.7040),
+                  LatLng(40.4180, -3.7050),
+                  LatLng(40.4190, -3.7060), // Callao aprox
+                ],
+                color: Colors.blue, // Color de la línea
+                strokeWidth: 5.0,   // Grosor de la línea
+              ),
+            ],
+          ),
+          // --- HASTA AQUÍ ---
         ],
       ),
     );
