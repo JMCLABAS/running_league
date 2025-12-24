@@ -49,6 +49,33 @@ class _MapScreenState extends State<MapScreen> {
 
   bool _isTracking = false;
 
+  // --- NUEVA FUNCIÓN: CALCULAR RITMO (min/km) ---
+  // Esta función toma el tiempo y la distancia y devuelve un string "5:30"
+  String _calcularRitmo(Duration duracion, double distanciaEnMetros) {
+    if (distanciaEnMetros <= 0) {
+      return "0:00"; // Si no nos hemos movido, ritmo 0
+    }
+
+    // 1. Convertimos a unidades estándar
+    double distanciaEnKm = distanciaEnMetros / 1000;
+    double minutosTotales = duracion.inSeconds / 60;
+
+    // 2. Calculamos los minutos por kilómetro
+    double ritmoDecimal = minutosTotales / distanciaEnKm;
+
+    // 3. Separamos minutos de segundos
+    int minutosRitmo = ritmoDecimal.floor();
+    int segundosRitmo = ((ritmoDecimal - minutosRitmo) * 60).round();
+
+    // 4. Formateamos los segundos para que tengan 2 dígitos (ej: "05")
+    String segundosString = segundosRitmo.toString().padLeft(2, '0');
+
+    // Evitamos ritmos absurdos al principio (si es mayor a 59 min/km mostramos --)
+    if (minutosRitmo > 59) return "--:--";
+
+    return "$minutosRitmo:$segundosString";
+  }
+
   // --- EMPEZAR ---
   Future<void> _startTracking() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -97,7 +124,7 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  // --- PARAR Y MOSTRAR RESUMEN (NUEVO) ---
+  // --- PARAR Y MOSTRAR RESUMEN ---
   void _stopTracking() {
     _positionStream?.cancel();
     _timer?.cancel();
@@ -107,10 +134,10 @@ class _MapScreenState extends State<MapScreen> {
       _isTracking = false;
     });
 
-    // Mostramos la ventana de resumen
+    // Mostramos la ventana de resumen con el ritmo medio final
     showDialog(
       context: context,
-      barrierDismissible: false, // Obliga a pulsar el botón para cerrar
+      barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
           title: const Text('🏁 ¡Entrenamiento Terminado!'),
@@ -124,19 +151,23 @@ class _MapScreenState extends State<MapScreen> {
               Text('Distancia: ${(_totalDistance / 1000).toStringAsFixed(2)} km', 
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
               ),
+              const SizedBox(height: 10),
+              // Añadimos también el ritmo al resumen final
+              Text('Ritmo Medio: ${_calcularRitmo(_duration, _totalDistance)} /km',
+                style: const TextStyle(fontSize: 18, color: Colors.orange)
+              ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () {
-                // Al cerrar, limpiamos el mapa para la siguiente carrera
                 setState(() {
                   _routePoints.clear();
                   _totalDistance = 0.0;
                   _duration = Duration.zero;
                   _currentPosition = null;
                 });
-                Navigator.of(context).pop(); // Cierra la ventana
+                Navigator.of(context).pop(); 
               },
               child: const Text('GUARDAR Y CERRAR'),
             ),
@@ -200,13 +231,13 @@ class _MapScreenState extends State<MapScreen> {
             ],
           ),
 
-          // DASHBOARD
+          // DASHBOARD (PANEL SUPERIOR)
           Positioned(
             top: 50,
             left: 20,
             right: 20,
             child: Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.95),
                 borderRadius: BorderRadius.circular(20),
@@ -217,16 +248,39 @@ class _MapScreenState extends State<MapScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
+                  // COLUMNA 1: TIEMPO
                   Column(
                     children: [
-                      const Text('TIEMPO', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
-                      Text(_formatTime(_duration), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+                      const Text('TIEMPO', style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
+                      Text(_formatTime(_duration), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                     ],
                   ),
+                  
+                  // --- NUEVA COLUMNA 2: RITMO ---
                   Column(
                     children: [
-                      const Text('DISTANCIA (km)', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
-                      Text((_totalDistance / 1000).toStringAsFixed(2), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.blue)),
+                      const Text('RITMO', style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
+                      Text(
+                        _calcularRitmo(_duration, _totalDistance), 
+                        style: TextStyle(
+                          fontSize: 22, // Un poco más grande para destacar
+                          fontWeight: FontWeight.w800, 
+                          color: Colors.orange[800] // Color naranja deportivo
+                        )
+                      ),
+                      const Text('min/km', style: TextStyle(fontSize: 8, color: Colors.grey)),
+                    ],
+                  ),
+
+                  // COLUMNA 3: DISTANCIA
+                  Column(
+                    children: [
+                      const Text('DISTANCIA', style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
+                      Text(
+                        (_totalDistance / 1000).toStringAsFixed(2), 
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.blue)
+                      ),
+                      const Text('km', style: TextStyle(fontSize: 8, color: Colors.grey)),
                     ],
                   ),
                 ],
