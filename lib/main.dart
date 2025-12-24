@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter/foundation.dart'; 
 
 void main() {
   runApp(const RunningLeagueApp());
@@ -42,15 +43,11 @@ class _MapScreenState extends State<MapScreen> {
   final Stopwatch _stopwatch = Stopwatch();
   Duration _duration = Duration.zero;
   
-  // --- ESTADÍSTICAS AVANZADAS (NUEVO) ---
-  // Historial para calcular el Rolling 1k (Mejor tramo de 1000m)
-  // Guardamos tu distancia y tiempo en cada segundo
+  // --- ESTADÍSTICAS AVANZADAS ---
   final List<({double dist, Duration time})> _history = []; 
-  Duration? _bestRolling1k; // El récord del mejor tramo continuo
-
-  // Splits (Km Redondos: 0-1, 1-2...)
-  List<Duration> _kmSplits = []; // Lista con los tiempos de cada km
-  Duration _lastSplitTime = Duration.zero; // Cuándo terminamos el km anterior
+  Duration? _bestRolling1k;
+  List<Duration> _kmSplits = []; 
+  Duration _lastSplitTime = Duration.zero; 
 
   // --- HERRAMIENTAS ---
   StreamSubscription<Position>? _positionStream;
@@ -112,10 +109,32 @@ class _MapScreenState extends State<MapScreen> {
       });
     });
 
-    const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 3,
-    );
+    // -----------------------------------------------------------------------
+    // [CAMBIO REALIZADO] Configuración avanzada para segundo plano (Foreground Service)
+    // -----------------------------------------------------------------------
+    LocationSettings locationSettings;
+
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      locationSettings = AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+        forceLocationManager: true,
+        intervalDuration: const Duration(seconds: 1),
+        // Aquí está la magia que mantiene viva la app:
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: "Running League",
+          notificationText: "Registrando tu carrera en segundo plano...",
+          notificationIcon: AndroidResource(name: 'ic_launcher'),
+          enableWakeLock: true, // Mantiene la CPU despierta
+        ),
+      );
+    } else {
+      locationSettings = const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+      );
+    }
+    // -----------------------------------------------------------------------
 
     _positionStream = Geolocator.getPositionStream(locationSettings: locationSettings)
         .listen((Position position) {
@@ -124,7 +143,6 @@ class _MapScreenState extends State<MapScreen> {
       
       setState(() {
         if (_routePoints.isNotEmpty) {
-          // Sumamos la distancia recorrida en este paso
           double stepDistance = _distanceCalculator.as(LengthUnit.Meter, _routePoints.last, newPoint);
           _totalDistance += stepDistance;
         }
@@ -132,42 +150,29 @@ class _MapScreenState extends State<MapScreen> {
         _currentPosition = newPoint;
         _routePoints.add(newPoint);
 
-        // --- CÁLCULO DE ESTADÍSTICAS EN TIEMPO REAL ---
-
-        // 1. Guardar historial para el Rolling 1k
+        // --- ESTADÍSTICAS ---
         _history.add((dist: _totalDistance, time: _duration));
 
-        // 2. Calcular Mejor Kilómetro "Rolling" (El tramo más rápido)
-        // Buscamos en el pasado el primer punto que esté a 1000m o más de distancia
         for (var point in _history) {
-          if (_totalDistance - point.dist >= 1000) {
-            // Hemos encontrado un tramo de 1km exacto (o casi) desde 'point' hasta 'ahora'
+          if (_totalDistance - point.dist >= 1000) { // 1000m para producción
             Duration tramoTime = _duration - point.time;
-            
-            // Si es el primer km que completamos O es más rápido que el récord actual:
             if (_bestRolling1k == null || tramoTime < _bestRolling1k!) {
               _bestRolling1k = tramoTime;
             }
-            // Importante: Rompemos el bucle porque queremos el tramo más reciente de 1km
             break; 
           }
         }
 
-        // 3. Calcular Splits (Kilómetros Redondos: 1, 2, 3...)
-        // Si hemos superado el siguiente km entero (ej: pasamos de 998m a 1002m)
-        int currentKmIndex = _totalDistance ~/ 1000; // División entera (ej: 1500m -> 1)
+        int currentKmIndex = _totalDistance ~/ 1000;
         if (currentKmIndex > _kmSplits.length) {
-          // Acabamos de completar un nuevo kilómetro
           Duration tiempoDeEsteKm = _duration - _lastSplitTime;
           _kmSplits.add(tiempoDeEsteKm);
-          _lastSplitTime = _duration; // Guardamos la referencia para el siguiente
+          _lastSplitTime = _duration; 
           
-          // Opcional: Mostrar un mensajito rápido (SnackBar)
           ScaffoldMessenger.of(context).showSnackBar(
              SnackBar(content: Text("🏁 Km $currentKmIndex en ${_formatTime(tiempoDeEsteKm)}"), duration: const Duration(seconds: 2))
           );
         }
-
       });
 
       _mapController.move(newPoint, 17.0);
@@ -184,11 +189,8 @@ class _MapScreenState extends State<MapScreen> {
       _isTracking = false;
     });
 
-    // Buscamos el mejor split "redondo"
     Duration? bestSplit;
     if (_kmSplits.isNotEmpty) {
-      // Ordenamos la lista para encontrar el menor tiempo
-      // (Hacemos una copia para no desordenar la original)
       List<Duration> sortedSplits = List.from(_kmSplits);
       sortedSplits.sort();
       bestSplit = sortedSplits.first;
@@ -212,19 +214,16 @@ class _MapScreenState extends State<MapScreen> {
                 const Text("Récords de la sesión:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
                 const SizedBox(height: 10),
                 
-                // Mejor tramo de 1000m (Rolling)
                 _buildStatRow(
                   "Mejor Km continuo:", 
                   _bestRolling1k != null ? _formatTime(_bestRolling1k!) : "--:--"
                 ),
 
-                // Mejor Km Redondo (Split)
                 _buildStatRow(
                   "Mejor Km Redondo:", 
                   bestSplit != null ? _formatTime(bestSplit) : "--:--"
                 ),
                 
-                // Mostrar todos los splits si hay espacio
                 if (_kmSplits.isNotEmpty) ...[
                    const SizedBox(height: 10),
                    const Text("Tus parciales:", style: TextStyle(fontSize: 12, color: Colors.grey)),
@@ -256,7 +255,6 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  // Pequeño widget para hacer filas de texto bonitas en el resumen
   Widget _buildStatRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
