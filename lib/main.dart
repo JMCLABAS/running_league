@@ -35,45 +35,48 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   
-  // --- DATOS ---
+  // --- DATOS BÁSICOS ---
   final List<LatLng> _routePoints = [];
   LatLng? _currentPosition;
   double _totalDistance = 0.0;
   final Stopwatch _stopwatch = Stopwatch();
   Duration _duration = Duration.zero;
   
+  // --- ESTADÍSTICAS AVANZADAS (NUEVO) ---
+  // Historial para calcular el Rolling 1k (Mejor tramo de 1000m)
+  // Guardamos tu distancia y tiempo en cada segundo
+  final List<({double dist, Duration time})> _history = []; 
+  Duration? _bestRolling1k; // El récord del mejor tramo continuo
+
+  // Splits (Km Redondos: 0-1, 1-2...)
+  List<Duration> _kmSplits = []; // Lista con los tiempos de cada km
+  Duration _lastSplitTime = Duration.zero; // Cuándo terminamos el km anterior
+
   // --- HERRAMIENTAS ---
   StreamSubscription<Position>? _positionStream;
   Timer? _timer;
   final Distance _distanceCalculator = const Distance();
-
   bool _isTracking = false;
 
-  // --- NUEVA FUNCIÓN: CALCULAR RITMO (min/km) ---
-  // Esta función toma el tiempo y la distancia y devuelve un string "5:30"
+  // --- MATEMÁTICAS ---
   String _calcularRitmo(Duration duracion, double distanciaEnMetros) {
-    if (distanciaEnMetros <= 0) {
-      return "0:00"; // Si no nos hemos movido, ritmo 0
-    }
-
-    // 1. Convertimos a unidades estándar
+    if (distanciaEnMetros <= 0) return "0:00";
     double distanciaEnKm = distanciaEnMetros / 1000;
     double minutosTotales = duracion.inSeconds / 60;
-
-    // 2. Calculamos los minutos por kilómetro
     double ritmoDecimal = minutosTotales / distanciaEnKm;
-
-    // 3. Separamos minutos de segundos
     int minutosRitmo = ritmoDecimal.floor();
     int segundosRitmo = ((ritmoDecimal - minutosRitmo) * 60).round();
-
-    // 4. Formateamos los segundos para que tengan 2 dígitos (ej: "05")
     String segundosString = segundosRitmo.toString().padLeft(2, '0');
-
-    // Evitamos ritmos absurdos al principio (si es mayor a 59 min/km mostramos --)
     if (minutosRitmo > 59) return "--:--";
-
     return "$minutosRitmo:$segundosString";
+  }
+
+  String _formatTime(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final hours = twoDigits(duration.inHours);
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return "$hours:$minutes:$seconds";
   }
 
   // --- EMPEZAR ---
@@ -92,6 +95,13 @@ class _MapScreenState extends State<MapScreen> {
       _routePoints.clear();
       _totalDistance = 0.0;
       _duration = Duration.zero;
+      
+      // Reiniciamos estadísticas
+      _history.clear();
+      _bestRolling1k = null;
+      _kmSplits.clear();
+      _lastSplitTime = Duration.zero;
+
       _stopwatch.reset();
       _stopwatch.start();
     });
@@ -114,10 +124,50 @@ class _MapScreenState extends State<MapScreen> {
       
       setState(() {
         if (_routePoints.isNotEmpty) {
-          _totalDistance += _distanceCalculator.as(LengthUnit.Meter, _routePoints.last, newPoint);
+          // Sumamos la distancia recorrida en este paso
+          double stepDistance = _distanceCalculator.as(LengthUnit.Meter, _routePoints.last, newPoint);
+          _totalDistance += stepDistance;
         }
+        
         _currentPosition = newPoint;
         _routePoints.add(newPoint);
+
+        // --- CÁLCULO DE ESTADÍSTICAS EN TIEMPO REAL ---
+
+        // 1. Guardar historial para el Rolling 1k
+        _history.add((dist: _totalDistance, time: _duration));
+
+        // 2. Calcular Mejor Kilómetro "Rolling" (El tramo más rápido)
+        // Buscamos en el pasado el primer punto que esté a 1000m o más de distancia
+        for (var point in _history) {
+          if (_totalDistance - point.dist >= 1000) {
+            // Hemos encontrado un tramo de 1km exacto (o casi) desde 'point' hasta 'ahora'
+            Duration tramoTime = _duration - point.time;
+            
+            // Si es el primer km que completamos O es más rápido que el récord actual:
+            if (_bestRolling1k == null || tramoTime < _bestRolling1k!) {
+              _bestRolling1k = tramoTime;
+            }
+            // Importante: Rompemos el bucle porque queremos el tramo más reciente de 1km
+            break; 
+          }
+        }
+
+        // 3. Calcular Splits (Kilómetros Redondos: 1, 2, 3...)
+        // Si hemos superado el siguiente km entero (ej: pasamos de 998m a 1002m)
+        int currentKmIndex = _totalDistance ~/ 1000; // División entera (ej: 1500m -> 1)
+        if (currentKmIndex > _kmSplits.length) {
+          // Acabamos de completar un nuevo kilómetro
+          Duration tiempoDeEsteKm = _duration - _lastSplitTime;
+          _kmSplits.add(tiempoDeEsteKm);
+          _lastSplitTime = _duration; // Guardamos la referencia para el siguiente
+          
+          // Opcional: Mostrar un mensajito rápido (SnackBar)
+          ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(content: Text("🏁 Km $currentKmIndex en ${_formatTime(tiempoDeEsteKm)}"), duration: const Duration(seconds: 2))
+          );
+        }
+
       });
 
       _mapController.move(newPoint, 17.0);
@@ -134,29 +184,56 @@ class _MapScreenState extends State<MapScreen> {
       _isTracking = false;
     });
 
-    // Mostramos la ventana de resumen con el ritmo medio final
+    // Buscamos el mejor split "redondo"
+    Duration? bestSplit;
+    if (_kmSplits.isNotEmpty) {
+      // Ordenamos la lista para encontrar el menor tiempo
+      // (Hacemos una copia para no desordenar la original)
+      List<Duration> sortedSplits = List.from(_kmSplits);
+      sortedSplits.sort();
+      bestSplit = sortedSplits.first;
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
-          title: const Text('🏁 ¡Entrenamiento Terminado!'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.emoji_events, size: 50, color: Colors.amber),
-              const SizedBox(height: 20),
-              Text('Tiempo Total: ${_formatTime(_duration)}', style: const TextStyle(fontSize: 18)),
-              const SizedBox(height: 10),
-              Text('Distancia: ${(_totalDistance / 1000).toStringAsFixed(2)} km', 
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
-              ),
-              const SizedBox(height: 10),
-              // Añadimos también el ritmo al resumen final
-              Text('Ritmo Medio: ${_calcularRitmo(_duration, _totalDistance)} /km',
-                style: const TextStyle(fontSize: 18, color: Colors.orange)
-              ),
-            ],
+          title: const Text('🏆 Resultados'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildStatRow("Distancia Total:", "${(_totalDistance / 1000).toStringAsFixed(2)} km"),
+                _buildStatRow("Tiempo Total:", _formatTime(_duration)),
+                _buildStatRow("Ritmo Medio:", "${_calcularRitmo(_duration, _totalDistance)} /km"),
+                const Divider(),
+                const Text("Récords de la sesión:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                const SizedBox(height: 10),
+                
+                // Mejor tramo de 1000m (Rolling)
+                _buildStatRow(
+                  "Mejor Km continuo:", 
+                  _bestRolling1k != null ? _formatTime(_bestRolling1k!) : "--:--"
+                ),
+
+                // Mejor Km Redondo (Split)
+                _buildStatRow(
+                  "Mejor Km Redondo:", 
+                  bestSplit != null ? _formatTime(bestSplit) : "--:--"
+                ),
+                
+                // Mostrar todos los splits si hay espacio
+                if (_kmSplits.isNotEmpty) ...[
+                   const SizedBox(height: 10),
+                   const Text("Tus parciales:", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                   ..._kmSplits.asMap().entries.map((e) {
+                     return Text("Km ${e.key + 1}: ${_formatTime(e.value)}", style: const TextStyle(fontSize: 12));
+                   }),
+                ]
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -166,10 +243,12 @@ class _MapScreenState extends State<MapScreen> {
                   _totalDistance = 0.0;
                   _duration = Duration.zero;
                   _currentPosition = null;
+                  _kmSplits.clear();
+                  _bestRolling1k = null;
                 });
                 Navigator.of(context).pop(); 
               },
-              child: const Text('GUARDAR Y CERRAR'),
+              child: const Text('CERRAR'),
             ),
           ],
         );
@@ -177,12 +256,18 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  String _formatTime(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    final hours = twoDigits(duration.inHours);
-    final minutes = twoDigits(duration.inMinutes.remainder(60));
-    final seconds = twoDigits(duration.inSeconds.remainder(60));
-    return "$hours:$minutes:$seconds";
+  // Pequeño widget para hacer filas de texto bonitas en el resumen
+  Widget _buildStatRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.black87)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        ],
+      ),
+    );
   }
 
   @override
@@ -194,7 +279,7 @@ class _MapScreenState extends State<MapScreen> {
           FlutterMap(
             mapController: _mapController,
             options: const MapOptions(
-              initialCenter: LatLng(37.3862, -5.9926), // Sevilla
+              initialCenter: LatLng(37.3862, -5.9926),
               initialZoom: 16.0,
             ),
             children: [
@@ -231,7 +316,7 @@ class _MapScreenState extends State<MapScreen> {
             ],
           ),
 
-          // DASHBOARD (PANEL SUPERIOR)
+          // DASHBOARD
           Positioned(
             top: 50,
             left: 20,
@@ -248,31 +333,26 @@ class _MapScreenState extends State<MapScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  // COLUMNA 1: TIEMPO
                   Column(
                     children: [
                       const Text('TIEMPO', style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
                       Text(_formatTime(_duration), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                     ],
                   ),
-                  
-                  // --- NUEVA COLUMNA 2: RITMO ---
                   Column(
                     children: [
                       const Text('RITMO', style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
                       Text(
                         _calcularRitmo(_duration, _totalDistance), 
                         style: TextStyle(
-                          fontSize: 22, // Un poco más grande para destacar
+                          fontSize: 22,
                           fontWeight: FontWeight.w800, 
-                          color: Colors.orange[800] // Color naranja deportivo
+                          color: Colors.orange[800]
                         )
                       ),
                       const Text('min/km', style: TextStyle(fontSize: 8, color: Colors.grey)),
                     ],
                   ),
-
-                  // COLUMNA 3: DISTANCIA
                   Column(
                     children: [
                       const Text('DISTANCIA', style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
@@ -290,7 +370,6 @@ class _MapScreenState extends State<MapScreen> {
         ],
       ),
 
-      // BOTÓN FLOTANTE
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isTracking ? _stopTracking : _startTracking,
         backgroundColor: _isTracking ? Colors.red : Colors.green,
