@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:flutter/foundation.dart'; 
+import 'package:flutter/foundation.dart';
 
 void main() {
   runApp(const RunningLeagueApp());
@@ -44,8 +44,12 @@ class _MapScreenState extends State<MapScreen> {
   Duration _duration = Duration.zero;
   
   // --- ESTADÍSTICAS AVANZADAS ---
+  // Historial: guardamos distancia y tiempo CADA VEZ que el GPS se mueve
   final List<({double dist, Duration time})> _history = []; 
-  Duration? _bestRolling1k;
+  
+  Duration? _bestRolling1k;      // El mejor tiempo
+  String _bestRolling1kRange = ""; // El texto "Km 3.2 - 4.2"
+  
   List<Duration> _kmSplits = []; 
   Duration _lastSplitTime = Duration.zero; 
 
@@ -95,7 +99,10 @@ class _MapScreenState extends State<MapScreen> {
       
       // Reiniciamos estadísticas
       _history.clear();
+      _history.add((dist: 0, time: Duration.zero)); // Punto inicial
+
       _bestRolling1k = null;
+      _bestRolling1kRange = "";
       _kmSplits.clear();
       _lastSplitTime = Duration.zero;
 
@@ -109,23 +116,18 @@ class _MapScreenState extends State<MapScreen> {
       });
     });
 
-    // -----------------------------------------------------------------------
-    // [CAMBIO REALIZADO] Configuración avanzada para segundo plano (Foreground Service)
-    // -----------------------------------------------------------------------
     LocationSettings locationSettings;
-
     if (defaultTargetPlatform == TargetPlatform.android) {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        distanceFilter: 3, // Actualiza cada 3 metros
         forceLocationManager: true,
         intervalDuration: const Duration(seconds: 1),
-        // Aquí está la magia que mantiene viva la app:
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: "Running League",
-          notificationText: "Registrando tu carrera en segundo plano...",
+          notificationText: "Grabando ruta...",
           notificationIcon: AndroidResource(name: 'ic_launcher'),
-          enableWakeLock: true, // Mantiene la CPU despierta
+          enableWakeLock: true,
         ),
       );
     } else {
@@ -134,7 +136,6 @@ class _MapScreenState extends State<MapScreen> {
         distanceFilter: 3,
       );
     }
-    // -----------------------------------------------------------------------
 
     _positionStream = Geolocator.getPositionStream(locationSettings: locationSettings)
         .listen((Position position) {
@@ -150,24 +151,44 @@ class _MapScreenState extends State<MapScreen> {
         _currentPosition = newPoint;
         _routePoints.add(newPoint);
 
-        // --- ESTADÍSTICAS ---
-        _history.add((dist: _totalDistance, time: _duration));
+        // --- LÓGICA CORREGIDA DE ESTADÍSTICAS ---
+        
+        // 1. Añadimos punto actual al historial
+        _history.add((dist: _totalDistance, time: _stopwatch.elapsed));
 
-        for (var point in _history) {
-          if (_totalDistance - point.dist >= 1000) { // 1000m para producción
-            Duration tramoTime = _duration - point.time;
-            if (_bestRolling1k == null || tramoTime < _bestRolling1k!) {
-              _bestRolling1k = tramoTime;
+        // 2. Calcular Mejor Kilómetro "Rolling" (Búsqueda inversa más precisa)
+        // Buscamos hacia atrás el punto que esté MÁS CERCA de hace 1000 metros exactos
+        if (_totalDistance >= 1000) {
+            double targetDist = _totalDistance - 1000;
+            
+            // Recorremos la lista al revés para encontrar el punto más cercano a targetDist
+            for (int i = _history.length - 1; i >= 0; i--) {
+                var point = _history[i];
+                
+                // Si encontramos un punto que está detrás de nuestro objetivo de 1000m
+                if (point.dist <= targetDist) {
+                    // Calculamos el tiempo que ha pasado desde ese punto hasta ahora
+                    Duration tramoTime = _stopwatch.elapsed - point.time;
+
+                    // ¿Es récord?
+                    if (_bestRolling1k == null || tramoTime < _bestRolling1k!) {
+                        _bestRolling1k = tramoTime;
+                        // Guardamos el rango formateado (ej: "3.45 - 4.45 km")
+                        double startKm = point.dist / 1000;
+                        double endKm = _totalDistance / 1000;
+                        _bestRolling1kRange = "Del km ${startKm.toStringAsFixed(2)} al ${endKm.toStringAsFixed(2)}";
+                    }
+                    break; // Ya encontramos el punto de referencia, paramos de buscar
+                }
             }
-            break; 
-          }
         }
 
+        // 3. Calcular Splits (Kilómetros Redondos)
         int currentKmIndex = _totalDistance ~/ 1000;
         if (currentKmIndex > _kmSplits.length) {
-          Duration tiempoDeEsteKm = _duration - _lastSplitTime;
+          Duration tiempoDeEsteKm = _stopwatch.elapsed - _lastSplitTime;
           _kmSplits.add(tiempoDeEsteKm);
-          _lastSplitTime = _duration; 
+          _lastSplitTime = _stopwatch.elapsed; 
           
           ScaffoldMessenger.of(context).showSnackBar(
              SnackBar(content: Text("🏁 Km $currentKmIndex en ${_formatTime(tiempoDeEsteKm)}"), duration: const Duration(seconds: 2))
@@ -214,11 +235,22 @@ class _MapScreenState extends State<MapScreen> {
                 const Text("Récords de la sesión:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
                 const SizedBox(height: 10),
                 
+                // Mejor tramo de 1000m (Rolling)
                 _buildStatRow(
                   "Mejor Km continuo:", 
                   _bestRolling1k != null ? _formatTime(_bestRolling1k!) : "--:--"
                 ),
+                // Mostramos el rango pequeño debajo
+                if (_bestRolling1kRange.isNotEmpty)
+                    Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: Text(
+                            _bestRolling1kRange, 
+                            style: TextStyle(fontSize: 11, color: Colors.grey[600], fontStyle: FontStyle.italic)
+                        ),
+                    ),
 
+                // Mejor Km Redondo (Split)
                 _buildStatRow(
                   "Mejor Km Redondo:", 
                   bestSplit != null ? _formatTime(bestSplit) : "--:--"
@@ -244,6 +276,7 @@ class _MapScreenState extends State<MapScreen> {
                   _currentPosition = null;
                   _kmSplits.clear();
                   _bestRolling1k = null;
+                  _bestRolling1kRange = "";
                 });
                 Navigator.of(context).pop(); 
               },
