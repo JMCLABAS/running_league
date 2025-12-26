@@ -4,17 +4,14 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/foundation.dart';
-import 'package:intl/date_symbol_data_local.dart'; // <--- 1. IMPORTANTE: AÑADE ESTO
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:flutter_tts/flutter_tts.dart'; // <--- 1. IMPORTAMOS LA VOZ
 import 'db_helper.dart'; 
 import 'history_screen.dart';
 
-// 2. MODIFICAMOS LA FUNCIÓN MAIN PARA QUE SEA ASÍNCRONA
 void main() async {
-  // Nos aseguramos de que el motor gráfico de Flutter esté listo
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Inicializamos los datos de fecha en Español ('es')
-  await initializeDateFormatting('es', null);
+  await initializeDateFormatting('es', null); 
   runApp(const RunningLeagueApp());
 }
 
@@ -44,6 +41,7 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
+  final FlutterTts _flutterTts = FlutterTts(); // <--- 2. EL OBJETO QUE HABLA
   
   // --- DATOS BÁSICOS ---
   final List<LatLng> _routePoints = [];
@@ -67,6 +65,29 @@ class _MapScreenState extends State<MapScreen> {
   final Distance _distanceCalculator = const Distance();
   bool _isTracking = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _initTts(); // <--- 3. CONFIGURAMOS LA VOZ AL INICIAR
+  }
+
+  // --- CONFIGURACIÓN DE VOZ ---
+  Future<void> _initTts() async {
+    // Configuración básica para español
+    await _flutterTts.setLanguage("es-ES");
+    await _flutterTts.setSpeechRate(0.5); // Velocidad normal (0.0 a 1.0)
+    await _flutterTts.setVolume(1.0);
+    await _flutterTts.setPitch(1.0);
+  }
+
+  Future<void> _speak(String text) async {
+    // Si ya está hablando, lo paramos para decir lo nuevo (opcional)
+    await _flutterTts.stop(); 
+    if (text.isNotEmpty) {
+      await _flutterTts.speak(text);
+    }
+  }
+
   // --- MATEMÁTICAS ---
   String _calcularRitmo(Duration duracion, double distanciaEnMetros) {
     if (distanciaEnMetros <= 0) return "0:00";
@@ -88,6 +109,13 @@ class _MapScreenState extends State<MapScreen> {
     return "$hours:$minutes:$seconds";
   }
 
+  // Helper para convertir texto de tiempo a voz natural (ej: "5 minutos 30 segundos")
+  String _durationToSpeech(Duration d) {
+    int min = d.inMinutes;
+    int sec = d.inSeconds % 60;
+    return "$min minutos y $sec segundos";
+  }
+
   // --- EMPEZAR ---
   Future<void> _startTracking() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -98,6 +126,9 @@ class _MapScreenState extends State<MapScreen> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return;
     }
+
+    // Aviso inicial de voz
+    _speak("Iniciando carrera. ¡Buena suerte!");
 
     setState(() {
       _isTracking = true;
@@ -179,16 +210,22 @@ class _MapScreenState extends State<MapScreen> {
             }
         }
 
-        // Splits
+        // --- SPLITS Y VOZ ---
         int currentKmIndex = _totalDistance ~/ 1000;
         if (currentKmIndex > _kmSplits.length) {
           Duration tiempoDeEsteKm = _stopwatch.elapsed - _lastSplitTime;
           _kmSplits.add(tiempoDeEsteKm);
           _lastSplitTime = _stopwatch.elapsed; 
           
+          // 1. Mensaje visual (SnackBar)
           ScaffoldMessenger.of(context).showSnackBar(
              SnackBar(content: Text("🏁 Km $currentKmIndex en ${_formatTime(tiempoDeEsteKm)}"), duration: const Duration(seconds: 2))
           );
+
+          // 2. MENSAJE DE VOZ (El Entrenador Fantasma) 🗣️
+          // Preparamos el texto: "Kilómetro 1 completado en 5 minutos y 30 segundos"
+          String speechText = "Kilómetro $currentKmIndex completado en ${_durationToSpeech(tiempoDeEsteKm)}";
+          _speak(speechText);
         }
       });
 
@@ -201,7 +238,8 @@ class _MapScreenState extends State<MapScreen> {
     _positionStream?.cancel();
     _timer?.cancel();
     _stopwatch.stop();
-    
+    _speak("Entrenamiento finalizado."); // Voz final
+
     setState(() {
       _isTracking = false;
     });
@@ -341,9 +379,6 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // ---------------------------------------------
-      // 1. NUEVO: AppBar profesional con botón de historial
-      // ---------------------------------------------
       appBar: AppBar(
         title: const Text(
           'Running League', 
@@ -351,7 +386,7 @@ class _MapScreenState extends State<MapScreen> {
         ),
         centerTitle: true,
         backgroundColor: Colors.white,
-        elevation: 0, // Sin sombra para que quede limpio (o pon 2 si quieres sombra)
+        elevation: 0, 
         surfaceTintColor: Colors.white,
         actions: [
           IconButton(
@@ -364,7 +399,7 @@ class _MapScreenState extends State<MapScreen> {
               );
             },
           ),
-          const SizedBox(width: 8), // Un poquito de margen
+          const SizedBox(width: 8),
         ],
       ),
       
@@ -411,11 +446,9 @@ class _MapScreenState extends State<MapScreen> {
             ],
           ),
 
-          // ---------------------------------------------
-          // 2. DASHBOARD AJUSTADO (Ahora top: 15)
-          // ---------------------------------------------
+          // DASHBOARD
           Positioned(
-            top: 15, // <--- CAMBIADO: Antes 50, ahora 15 para estar bajo el AppBar
+            top: 15,
             left: 20,
             right: 20,
             child: Container(
