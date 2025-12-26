@@ -7,9 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // <--- NECESARIO PARA GUARDAR EL ID
+import 'package:firebase_auth/firebase_auth.dart'; 
 
-// Tus otras pantallas
 import 'db_helper.dart'; 
 import 'history_screen.dart';
 import 'login_screen.dart'; 
@@ -33,22 +32,38 @@ class RunningLeagueApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      // El "Portero": Verifica si hay usuario logueado
+      // --- PORTERO AUTOMÁTICO MEJORADO ---
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(body: Center(child: CircularProgressIndicator()));
           }
+          
+          // Si hay usuario logueado...
           if (snapshot.hasData) {
-            return const MapScreen(); 
+            final user = snapshot.data!;
+            
+            // ... Y ADEMÁS tiene el correo verificado: Pasamos al Mapa
+            if (user.emailVerified) {
+               return const MapScreen(); 
+            }
+            // Si está logueado pero NO verificado, no le dejamos pasar.
+            // Se quedará viendo el LoginScreen (y tu lógica del Login le mostrará el error rojo)
           }
+          
+          // Si no hay usuario o no está verificado, mostramos Login
           return const LoginScreen();
         },
       ),
     );
   }
 }
+
+// --------------------------------------------------------
+// A PARTIR DE AQUÍ EL RESTO ES IGUAL (MapScreen, etc...)
+// Solo asegúrate de no borrar la clase MapScreen que tienes debajo
+// --------------------------------------------------------
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -61,17 +76,14 @@ class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   final FlutterTts _flutterTts = FlutterTts();
   
-  // --- CONTROL DE VOZ ---
   bool _voiceEnabled = true;
 
-  // --- DATOS BÁSICOS ---
   final List<LatLng> _routePoints = [];
   LatLng? _currentPosition;
   double _totalDistance = 0.0;
   final Stopwatch _stopwatch = Stopwatch();
   Duration _duration = Duration.zero;
   
-  // --- ESTADÍSTICAS AVANZADAS ---
   final List<({double dist, Duration time})> _history = []; 
   
   Duration? _bestRolling1k;      
@@ -80,7 +92,6 @@ class _MapScreenState extends State<MapScreen> {
   List<Duration> _kmSplits = []; 
   Duration _lastSplitTime = Duration.zero; 
 
-  // --- HERRAMIENTAS ---
   StreamSubscription<Position>? _positionStream;
   Timer? _timer;
   final Distance _distanceCalculator = const Distance();
@@ -108,7 +119,6 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // --- MATEMÁTICAS ---
   String _calcularRitmo(Duration duracion, double distanciaEnMetros) {
     if (distanciaEnMetros <= 0) return "0:00";
     double distanciaEnKm = distanciaEnMetros / 1000;
@@ -138,7 +148,6 @@ class _MapScreenState extends State<MapScreen> {
     return texto;
   }
 
-  // --- EMPEZAR ---
   Future<void> _startTracking() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
@@ -210,7 +219,6 @@ class _MapScreenState extends State<MapScreen> {
         _currentPosition = newPoint;
         _routePoints.add(newPoint);
 
-        // --- LÓGICA ESTADÍSTICAS ---
         _history.add((dist: _totalDistance, time: _stopwatch.elapsed));
 
         if (_totalDistance >= 1000) {
@@ -230,7 +238,6 @@ class _MapScreenState extends State<MapScreen> {
             }
         }
 
-        // --- SPLITS Y VOZ ---
         int currentKmIndex = _totalDistance ~/ 1000;
         if (currentKmIndex > _kmSplits.length) {
           Duration tiempoDeEsteKm = _stopwatch.elapsed - _lastSplitTime;
@@ -250,7 +257,6 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  // --- PARAR ---
   void _stopTracking() {
     _positionStream?.cancel();
     _timer?.cancel();
@@ -334,10 +340,9 @@ class _MapScreenState extends State<MapScreen> {
                child: const Text('DESCARTAR', style: TextStyle(color: Colors.grey)),
             ),
             
-            // --- BOTÓN DE GUARDAR MODIFICADO ---
             ElevatedButton(
               onPressed: () async {
-                // 1. OBTENEMOS EL USUARIO (Esta es la parte que te faltaba)
+                // 1. OBTENEMOS EL USUARIO 
                 final user = FirebaseAuth.instance.currentUser;
                 
                 if (user == null) {
@@ -348,7 +353,7 @@ class _MapScreenState extends State<MapScreen> {
                 }
 
                 Map<String, dynamic> carreraParaGuardar = {
-                  'userId': user.uid, // <--- AHORA SÍ FUNCIONA
+                  'userId': user.uid, 
                   'date': DateTime.now().toIso8601String(),
                   'duration': _duration.inSeconds,
                   'distance': _totalDistance,
