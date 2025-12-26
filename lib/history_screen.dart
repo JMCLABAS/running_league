@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart'; 
+import 'package:firebase_auth/firebase_auth.dart'; // <--- IMPORTANTE: Para saber quién eres
 import 'db_helper.dart';
+import 'login_screen.dart'; // Para volver al login al salir
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -18,13 +20,32 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _refreshRuns();
   }
 
+  // --- CAMBIO CLAVE: AHORA FILTRAMOS POR USUARIO ---
   void _refreshRuns() {
     setState(() {
-      _runHistory = DBHelper().getRuns();
+      final user = FirebaseAuth.instance.currentUser;
+      
+      if (user != null) {
+        // Si hay usuario, pedimos SUS carreras
+        _runHistory = DBHelper().getUserRuns(user.uid);
+      } else {
+        // Si no hay usuario (raro), devolvemos lista vacía
+        _runHistory = Future.value([]);
+      }
     });
   }
 
-  // --- NUEVA FUNCIÓN: LÓGICA DE BORRADO ---
+  // --- LOGOUT (Para probar cuentas distintas) ---
+  Future<void> _signOut() async {
+    await FirebaseAuth.instance.signOut();
+    if (mounted) {
+      // Volvemos a la pantalla de Login y borramos el historial de navegación
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
+    }
+  }
+
   void _confirmDelete(int id) {
     showDialog(
       context: context,
@@ -33,27 +54,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
           title: const Text("¿Eliminar carrera?"),
           content: const Text("¿Seguro que quieres eliminar esta carrera?"),
           actions: [
-            // Botón Cancelar
             TextButton(
               child: const Text("No, Cancelar"),
               onPressed: () {
-                Navigator.of(context).pop(); // Cierra el diálogo sin hacer nada
+                Navigator.of(context).pop(); 
               },
             ),
-            // Botón Eliminar (Rojo para indicar peligro)
             TextButton(
               child: const Text("Sí, Eliminar", style: TextStyle(color: Colors.red)),
               onPressed: () async {
-                // 1. Borramos de la base de datos
                 await DBHelper().deleteRun(id);
-                
-                // 2. Cerramos el diálogo
                 if (context.mounted) Navigator.of(context).pop();
-
-                // 3. Recargamos la lista para que desaparezca la tarjeta
                 _refreshRuns();
-                
-                // 4. Feedback al usuario
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text("🗑️ Carrera eliminada")),
@@ -69,12 +81,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Obtenemos el usuario para mostrar su email o foto si quisiéramos
+    final user = FirebaseAuth.instance.currentUser;
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: const Text('Mi Historial 🏃‍♂️'),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
+        actions: [
+          // BOTÓN DE CERRAR SESIÓN (Nuevo)
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            tooltip: "Cerrar Sesión",
+            onPressed: _signOut,
+          )
+        ],
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _runHistory,
@@ -86,13 +109,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
             return Center(child: Text("Error: ${snapshot.error}"));
           }
           if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(
+            return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.directions_run, size: 80, color: Colors.grey),
-                  SizedBox(height: 20),
-                  Text("Aún no has corrido. ¡A por ello!", style: TextStyle(color: Colors.grey)),
+                  const Icon(Icons.directions_run, size: 80, color: Colors.grey),
+                  const SizedBox(height: 20),
+                  Text(
+                    user != null ? "Hola ${user.email?.split('@')[0]}" : "Hola Runner",
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text("Tu historial está vacío.", style: TextStyle(color: Colors.grey)),
+                  const Text("¡Sal a correr para llenarlo!", style: TextStyle(color: Colors.grey)),
                 ],
               ),
             );
@@ -115,7 +144,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   Widget _buildRunCard(Map<String, dynamic> run) {
     DateTime fecha = DateTime.parse(run['date']);
-    // Usamos el formato español
     String fechaBonita = DateFormat("d MMM yyyy - HH:mm", "es").format(fecha);
 
     return Card(
@@ -128,11 +156,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. CABECERA CON FECHA Y BOTÓN DE BORRAR
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween, // Separa fecha a la izq y botón a la der
+              mainAxisAlignment: MainAxisAlignment.spaceBetween, 
               children: [
-                // Fecha e icono calendario
                 Row(
                   children: [
                     const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
@@ -140,11 +166,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     Text(fechaBonita, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
                   ],
                 ),
-                // --- BOTÓN DE PAPELERA ---
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                   onPressed: () {
-                    // Llamamos a la función de confirmación pasándole el ID de esta carrera
                     _confirmDelete(run['id']);
                   },
                 ),
@@ -152,7 +176,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
             const Divider(),
             
-            // 2. DATOS GRANDES
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -164,7 +187,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
             
             const SizedBox(height: 15),
             
-            // 3. LOS RÉCORDS
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(

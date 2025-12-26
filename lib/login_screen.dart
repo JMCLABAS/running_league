@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'history_screen.dart';
+// import 'history_screen.dart'; // Ya no lo necesitamos aquí
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -11,7 +11,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // 1. Instancia CLÁSICA (Funciona perfecto en v6.2.1)
+  // 1. Instancia CLÁSICA
   final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   final _emailController = TextEditingController();
@@ -30,6 +30,13 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
+      
+      // --- CORRECCIÓN: NAVEGACIÓN AUTOMÁTICA ---
+      if (mounted) {
+        // Esto cierra la pantalla de login y deja ver el Mapa que hay debajo
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+      
     } on FirebaseAuthException catch (e) {
       _handleFirebaseError(e);
     } catch (e) {
@@ -52,6 +59,12 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text.trim(),
       );
       _showMessage("¡Cuenta creada!", color: Colors.green);
+      
+      // --- CORRECCIÓN: NAVEGACIÓN AUTOMÁTICA ---
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+
     } on FirebaseAuthException catch (e) {
       _handleFirebaseError(e);
     } catch (e) {
@@ -61,31 +74,31 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // --- LOGIN CON GOOGLE (VERSIÓN ESTABLE v6) ---
+  // --- LOGIN CON GOOGLE ---
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
     try {
-      // 1. Iniciar sesión (Método clásico)
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       
       if (googleUser == null) {
         setState(() => _isLoading = false);
-        return; // Cancelado por usuario
+        return; 
       }
 
-      // 2. Obtener tokens
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
 
-      // 3. Credencial para Firebase
-      // En la versión 6, accessToken SÍ existe y es bueno usarlo.
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken, 
         idToken: googleAuth.idToken,
       );
 
-      // 4. Entrar en Firebase
       await FirebaseAuth.instance.signInWithCredential(credential);
       _showMessage("¡Conectado con Google!", color: Colors.green);
+
+      // --- CORRECCIÓN: NAVEGACIÓN AUTOMÁTICA ---
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
       
     } catch (e) {
       _showMessage("Error Google: $e");

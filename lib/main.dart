@@ -7,17 +7,17 @@ import 'package:flutter/foundation.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // <--- IMPORTANTE: Para ver si estás logueado
+import 'package:firebase_auth/firebase_auth.dart'; // <--- NECESARIO PARA GUARDAR EL ID
 
 // Tus otras pantallas
 import 'db_helper.dart'; 
 import 'history_screen.dart';
-import 'login_screen.dart'; // <--- IMPORTANTE: Para poder ir al Login
+import 'login_screen.dart'; 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('es', null); 
-  await Firebase.initializeApp(); // Inicia Firebase
+  await Firebase.initializeApp(); 
   runApp(const RunningLeagueApp());
 }
 
@@ -33,31 +33,22 @@ class RunningLeagueApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      // --- CAMBIO CLAVE: El "Portero" ---
-      // Si hay usuario logueado (snapshot.hasData) -> Vamos al Mapa.
-      // Si no -> Vamos al Login.
+      // El "Portero": Verifica si hay usuario logueado
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
-          // Si está cargando, mostramos un círculo
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(body: Center(child: CircularProgressIndicator()));
           }
-          // Si hay datos, es que el usuario ya inició sesión antes
           if (snapshot.hasData) {
             return const MapScreen(); 
           }
-          // Si no, al Login
           return const LoginScreen();
         },
       ),
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// A PARTIR DE AQUÍ ESTÁ TU CÓDIGO ORIGINAL DEL MAPA (INTACTO)
-// ---------------------------------------------------------------------------
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -343,9 +334,21 @@ class _MapScreenState extends State<MapScreen> {
                child: const Text('DESCARTAR', style: TextStyle(color: Colors.grey)),
             ),
             
+            // --- BOTÓN DE GUARDAR MODIFICADO ---
             ElevatedButton(
               onPressed: () async {
+                // 1. OBTENEMOS EL USUARIO (Esta es la parte que te faltaba)
+                final user = FirebaseAuth.instance.currentUser;
+                
+                if (user == null) {
+                   ScaffoldMessenger.of(context).showSnackBar(
+                     const SnackBar(content: Text("⚠️ Error: No hay usuario identificado")),
+                   );
+                   return;
+                }
+
                 Map<String, dynamic> carreraParaGuardar = {
+                  'userId': user.uid, // <--- AHORA SÍ FUNCIONA
                   'date': DateTime.now().toIso8601String(),
                   'duration': _duration.inSeconds,
                   'distance': _totalDistance,
@@ -362,7 +365,7 @@ class _MapScreenState extends State<MapScreen> {
                 if (context.mounted) {
                    Navigator.of(context).pop();
                    ScaffoldMessenger.of(context).showSnackBar(
-                     const SnackBar(content: Text("✅ ¡Carrera guardada en el historial!")),
+                     const SnackBar(content: Text("✅ ¡Carrera guardada en TU cuenta!")),
                    );
                 }
               },
@@ -415,7 +418,6 @@ class _MapScreenState extends State<MapScreen> {
         elevation: 0, 
         surfaceTintColor: Colors.white,
         actions: [
-          // 1. BOTÓN DE SILENCIAR
           IconButton(
             tooltip: _voiceEnabled ? "Silenciar Voz" : "Activar Voz",
             icon: Icon(
@@ -437,8 +439,6 @@ class _MapScreenState extends State<MapScreen> {
               );
             },
           ),
-
-          // 2. BOTÓN DE HISTORIAL
           IconButton(
             icon: const Icon(Icons.history, color: Colors.black87),
             tooltip: "Ver Historial",
@@ -449,15 +449,11 @@ class _MapScreenState extends State<MapScreen> {
               );
             },
           ),
-          
-          // 3. (OPCIONAL) BOTÓN DE SALIR (LOGOUT)
-          // Lo añadimos aquí para que puedas cerrar sesión si quieres probar el login otra vez
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.redAccent),
             tooltip: "Cerrar Sesión",
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
-              // El StreamBuilder te llevará automáticamente al LoginScreen
             },
           ),
           const SizedBox(width: 8),
@@ -466,7 +462,6 @@ class _MapScreenState extends State<MapScreen> {
       
       body: Stack(
         children: [
-          // MAPA
           FlutterMap(
             mapController: _mapController,
             options: const MapOptions(
@@ -507,7 +502,6 @@ class _MapScreenState extends State<MapScreen> {
             ],
           ),
 
-          // DASHBOARD
           Positioned(
             top: 15,
             left: 20,

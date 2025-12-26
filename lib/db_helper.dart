@@ -2,32 +2,29 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
 class DBHelper {
-  // Singleton: Para asegurarnos de que solo hay una instancia
   static final DBHelper _instance = DBHelper._internal();
   static Database? _database;
 
-  factory DBHelper() {
-    return _instance;
-  }
+  factory DBHelper() => _instance;
 
   DBHelper._internal();
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDatabase();
+    _database = await _initDB();
     return _database!;
   }
 
-  Future<Database> _initDatabase() async {
+  Future<Database> _initDB() async {
     String path = join(await getDatabasesPath(), 'running_league.db');
     return await openDatabase(
       path,
-      version: 1, // Si cambias la tabla, desinstala la app o sube esto a 2
-      onCreate: (db, version) {
-        return db.execute(
-          '''
+      version: 2, // Subimos la versión por si acaso
+      onCreate: (db, version) async {
+        await db.execute('''
           CREATE TABLE runs(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId TEXT, 
             date TEXT,
             duration INTEGER,
             distance REAL,
@@ -37,13 +34,32 @@ class DBHelper {
             bestRollingTime TEXT,
             bestRollingRange TEXT
           )
-          ''',
-        );
+        ''');
+      },
+      // Esto borra la tabla vieja si detecta una versión nueva (útil para desarrollo)
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute("DROP TABLE IF EXISTS runs");
+          await db.execute('''
+            CREATE TABLE runs(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              userId TEXT,
+              date TEXT,
+              duration INTEGER,
+              distance REAL,
+              avgSpeed TEXT,
+              bestSplitTime TEXT,
+              bestSplitRange TEXT,
+              bestRollingTime TEXT,
+              bestRollingRange TEXT
+            )
+          ''');
+        }
       },
     );
   }
 
-  // --- GUARDAR CARRERA ---
+  // Guardar carrera (ahora requiere userId en el mapa)
   Future<void> insertRun(Map<String, dynamic> run) async {
     final db = await database;
     await db.insert(
@@ -53,17 +69,21 @@ class DBHelper {
     );
   }
 
-  // --- OBTENER HISTORIAL ---
-  Future<List<Map<String, dynamic>>> getRuns() async {
+  // Obtener SOLO las carreras del usuario actual
+  Future<List<Map<String, dynamic>>> getUserRuns(String userId) async {
     final db = await database;
-    // Ordenado por ID descendente (la última carrera sale la primera)
-    return await db.query('runs', orderBy: 'id DESC');
+    // El "WHERE userId = ?" es el filtro de seguridad
+    return await db.query(
+      'runs',
+      where: 'userId = ?',
+      whereArgs: [userId],
+      orderBy: 'date DESC', // Las más recientes primero
+    );
   }
-
-  // --- FUNCIÓN 3: ELIMINAR UNA CARRERA ---
+  
+  // Borrar una carrera específica
   Future<void> deleteRun(int id) async {
     final db = await database;
-    // Borramos de la tabla 'runs' donde la columna 'id' coincida con el que pasamos
     await db.delete(
       'runs',
       where: 'id = ?',
