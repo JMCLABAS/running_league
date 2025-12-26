@@ -4,8 +4,17 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/foundation.dart';
+import 'package:intl/date_symbol_data_local.dart'; // <--- 1. IMPORTANTE: AÑADE ESTO
+import 'db_helper.dart'; 
+import 'history_screen.dart';
 
-void main() {
+// 2. MODIFICAMOS LA FUNCIÓN MAIN PARA QUE SEA ASÍNCRONA
+void main() async {
+  // Nos aseguramos de que el motor gráfico de Flutter esté listo
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Inicializamos los datos de fecha en Español ('es')
+  await initializeDateFormatting('es', null);
   runApp(const RunningLeagueApp());
 }
 
@@ -44,11 +53,10 @@ class _MapScreenState extends State<MapScreen> {
   Duration _duration = Duration.zero;
   
   // --- ESTADÍSTICAS AVANZADAS ---
-  // Historial: guardamos distancia y tiempo CADA VEZ que el GPS se mueve
   final List<({double dist, Duration time})> _history = []; 
   
-  Duration? _bestRolling1k;      // El mejor tiempo
-  String _bestRolling1kRange = ""; // El texto "Km 3.2 - 4.2"
+  Duration? _bestRolling1k;      
+  String _bestRolling1kRange = ""; 
   
   List<Duration> _kmSplits = []; 
   Duration _lastSplitTime = Duration.zero; 
@@ -97,9 +105,8 @@ class _MapScreenState extends State<MapScreen> {
       _totalDistance = 0.0;
       _duration = Duration.zero;
       
-      // Reiniciamos estadísticas
       _history.clear();
-      _history.add((dist: 0, time: Duration.zero)); // Punto inicial
+      _history.add((dist: 0, time: Duration.zero));
 
       _bestRolling1k = null;
       _bestRolling1kRange = "";
@@ -120,7 +127,7 @@ class _MapScreenState extends State<MapScreen> {
     if (defaultTargetPlatform == TargetPlatform.android) {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3, // Actualiza cada 3 metros
+        distanceFilter: 3,
         forceLocationManager: true,
         intervalDuration: const Duration(seconds: 1),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
@@ -151,39 +158,28 @@ class _MapScreenState extends State<MapScreen> {
         _currentPosition = newPoint;
         _routePoints.add(newPoint);
 
-        // --- LÓGICA CORREGIDA DE ESTADÍSTICAS ---
-        
-        // 1. Añadimos punto actual al historial
+        // --- LÓGICA ESTADÍSTICAS ---
         _history.add((dist: _totalDistance, time: _stopwatch.elapsed));
 
-        // 2. Calcular Mejor Kilómetro "Rolling" (Búsqueda inversa más precisa)
-        // Buscamos hacia atrás el punto que esté MÁS CERCA de hace 1000 metros exactos
+        // Mejor Km Continuo
         if (_totalDistance >= 1000) {
             double targetDist = _totalDistance - 1000;
-            
-            // Recorremos la lista al revés para encontrar el punto más cercano a targetDist
             for (int i = _history.length - 1; i >= 0; i--) {
                 var point = _history[i];
-                
-                // Si encontramos un punto que está detrás de nuestro objetivo de 1000m
                 if (point.dist <= targetDist) {
-                    // Calculamos el tiempo que ha pasado desde ese punto hasta ahora
                     Duration tramoTime = _stopwatch.elapsed - point.time;
-
-                    // ¿Es récord?
                     if (_bestRolling1k == null || tramoTime < _bestRolling1k!) {
                         _bestRolling1k = tramoTime;
-                        // Guardamos el rango formateado (ej: "3.45 - 4.45 km")
                         double startKm = point.dist / 1000;
                         double endKm = _totalDistance / 1000;
                         _bestRolling1kRange = "Del km ${startKm.toStringAsFixed(2)} al ${endKm.toStringAsFixed(2)}";
                     }
-                    break; // Ya encontramos el punto de referencia, paramos de buscar
+                    break; 
                 }
             }
         }
 
-        // 3. Calcular Splits (Kilómetros Redondos)
+        // Splits
         int currentKmIndex = _totalDistance ~/ 1000;
         if (currentKmIndex > _kmSplits.length) {
           Duration tiempoDeEsteKm = _stopwatch.elapsed - _lastSplitTime;
@@ -200,7 +196,7 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  // --- PARAR Y MOSTRAR RESUMEN ---
+  // --- PARAR, GUARDAR Y MOSTRAR RESUMEN ---
   void _stopTracking() {
     _positionStream?.cancel();
     _timer?.cancel();
@@ -211,10 +207,13 @@ class _MapScreenState extends State<MapScreen> {
     });
 
     Duration? bestSplit;
+    String bestSplitRange = ""; 
+
     if (_kmSplits.isNotEmpty) {
-      List<Duration> sortedSplits = List.from(_kmSplits);
-      sortedSplits.sort();
-      bestSplit = sortedSplits.first;
+      Duration minTime = _kmSplits.reduce((curr, next) => curr < next ? curr : next);
+      bestSplit = minTime;
+      int index = _kmSplits.indexOf(minTime);
+      bestSplitRange = "Km ${index + 1}";
     }
 
     showDialog(
@@ -235,12 +234,10 @@ class _MapScreenState extends State<MapScreen> {
                 const Text("Récords de la sesión:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
                 const SizedBox(height: 10),
                 
-                // Mejor tramo de 1000m (Rolling)
                 _buildStatRow(
                   "Mejor Km continuo:", 
                   _bestRolling1k != null ? _formatTime(_bestRolling1k!) : "--:--"
                 ),
-                // Mostramos el rango pequeño debajo
                 if (_bestRolling1kRange.isNotEmpty)
                     Padding(
                         padding: const EdgeInsets.only(bottom: 8.0),
@@ -250,11 +247,18 @@ class _MapScreenState extends State<MapScreen> {
                         ),
                     ),
 
-                // Mejor Km Redondo (Split)
                 _buildStatRow(
                   "Mejor Km Redondo:", 
                   bestSplit != null ? _formatTime(bestSplit) : "--:--"
                 ),
+                 if (bestSplitRange.isNotEmpty)
+                    Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: Text(
+                            bestSplitRange, 
+                            style: TextStyle(fontSize: 11, color: Colors.grey[600], fontStyle: FontStyle.italic)
+                        ),
+                    ),
                 
                 if (_kmSplits.isNotEmpty) ...[
                    const SizedBox(height: 10),
@@ -268,24 +272,57 @@ class _MapScreenState extends State<MapScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                setState(() {
-                  _routePoints.clear();
-                  _totalDistance = 0.0;
-                  _duration = Duration.zero;
-                  _currentPosition = null;
-                  _kmSplits.clear();
-                  _bestRolling1k = null;
-                  _bestRolling1kRange = "";
-                });
-                Navigator.of(context).pop(); 
+               onPressed: () {
+                 _resetCarrera();
+                 Navigator.of(context).pop();
+               },
+               child: const Text('DESCARTAR', style: TextStyle(color: Colors.grey)),
+            ),
+            
+            ElevatedButton(
+              onPressed: () async {
+                Map<String, dynamic> carreraParaGuardar = {
+                  'date': DateTime.now().toIso8601String(),
+                  'duration': _duration.inSeconds,
+                  'distance': _totalDistance,
+                  'avgSpeed': _calcularRitmo(_duration, _totalDistance),
+                  'bestSplitTime': bestSplit != null ? _formatTime(bestSplit) : "-",
+                  'bestSplitRange': bestSplitRange.isNotEmpty ? bestSplitRange : "-",
+                  'bestRollingTime': _bestRolling1k != null ? _formatTime(_bestRolling1k!) : "-",
+                  'bestRollingRange': _bestRolling1kRange.isNotEmpty ? _bestRolling1kRange : "-",
+                };
+
+                await DBHelper().insertRun(carreraParaGuardar);
+
+                _resetCarrera();
+                if (context.mounted) {
+                   Navigator.of(context).pop();
+                   ScaffoldMessenger.of(context).showSnackBar(
+                     const SnackBar(content: Text("✅ ¡Carrera guardada en el historial!")),
+                   );
+                }
               },
-              child: const Text('CERRAR'),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+              child: const Text('GUARDAR'),
             ),
           ],
         );
       },
     );
+  }
+
+  void _resetCarrera() {
+     setState(() {
+        _routePoints.clear();
+        _totalDistance = 0.0;
+        _duration = Duration.zero;
+        _currentPosition = null;
+        _kmSplits.clear();
+        _bestRolling1k = null;
+        _bestRolling1kRange = "";
+        _history.clear();
+        _history.add((dist: 0, time: Duration.zero));
+     });
   }
 
   Widget _buildStatRow(String label, String value) {
@@ -304,6 +341,33 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // ---------------------------------------------
+      // 1. NUEVO: AppBar profesional con botón de historial
+      // ---------------------------------------------
+      appBar: AppBar(
+        title: const Text(
+          'Running League', 
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)
+        ),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0, // Sin sombra para que quede limpio (o pon 2 si quieres sombra)
+        surfaceTintColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history, color: Colors.black87),
+            tooltip: "Ver Historial",
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HistoryScreen()),
+              );
+            },
+          ),
+          const SizedBox(width: 8), // Un poquito de margen
+        ],
+      ),
+      
       body: Stack(
         children: [
           // MAPA
@@ -347,9 +411,11 @@ class _MapScreenState extends State<MapScreen> {
             ],
           ),
 
-          // DASHBOARD
+          // ---------------------------------------------
+          // 2. DASHBOARD AJUSTADO (Ahora top: 15)
+          // ---------------------------------------------
           Positioned(
-            top: 50,
+            top: 15, // <--- CAMBIADO: Antes 50, ahora 15 para estar bajo el AppBar
             left: 20,
             right: 20,
             child: Container(
