@@ -8,7 +8,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart'; 
-
+import 'nickname_screen.dart';
 import 'db_helper.dart'; 
 import 'history_screen.dart';
 import 'login_screen.dart'; 
@@ -101,8 +101,32 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     _initTts();
-  }
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkIfNewGoogleUser();
+    });
+  }
+void _checkIfNewGoogleUser() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && user.metadata.creationTime != null) {
+      
+      // 1. ¿Es usuario de Google? (Para no molestar a los de email que ya pusieron nombre)
+      bool isGoogleUser = user.providerData.any((info) => info.providerId == 'google.com');
+
+      // 2. ¿La cuenta es "fresca"? (Creada hace menos de 30 segundos)
+      // Si borras el usuario en Firebase y entras, la fecha de creación se resetea a AHORA.
+      final difference = DateTime.now().difference(user.metadata.creationTime!);
+      bool isRecent = difference.inSeconds < 15;
+
+      if (isGoogleUser && isRecent) {
+        // ¡Eres nuevo! Vamos a ponerte nombre.
+        Navigator.push(
+          context, 
+          MaterialPageRoute(builder: (_) => const NicknameScreen())
+        );
+      }
+    }
+  }
   Future<void> _initTts() async {
     await _flutterTts.setLanguage("es-ES");
     await _flutterTts.setSpeechRate(0.5);

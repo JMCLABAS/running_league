@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // <--- IMPORTANTE: Para saber quién eres
 import 'db_helper.dart';
 import 'login_screen.dart'; // Para volver al login al salir
+import 'package:google_sign_in/google_sign_in.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -29,7 +30,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
         // Si hay usuario, pedimos SUS carreras
         _runHistory = DBHelper().getUserRuns(user.uid);
       } else {
-        // Si no hay usuario (raro), devolvemos lista vacía
+        // Si no hay usu
+        //ario (raro), devolvemos lista vacía
         _runHistory = Future.value([]);
       }
     });
@@ -38,6 +40,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   // --- LOGOUT (Para probar cuentas distintas) ---
   Future<void> _signOut() async {
     await FirebaseAuth.instance.signOut();
+    await GoogleSignIn().signOut();
     if (mounted) {
       // Volvemos a la pantalla de Login y borramos el historial de navegación
       Navigator.of(context).pushReplacement(
