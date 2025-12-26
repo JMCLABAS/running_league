@@ -6,14 +6,18 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // <--- IMPORTANTE: Para ver si estás logueado
+
+// Tus otras pantallas
 import 'db_helper.dart'; 
 import 'history_screen.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'login_screen.dart'; // <--- IMPORTANTE: Para poder ir al Login
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('es', null); 
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(); // Inicia Firebase
   runApp(const RunningLeagueApp());
 }
 
@@ -29,10 +33,31 @@ class RunningLeagueApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const MapScreen(),
+      // --- CAMBIO CLAVE: El "Portero" ---
+      // Si hay usuario logueado (snapshot.hasData) -> Vamos al Mapa.
+      // Si no -> Vamos al Login.
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          // Si está cargando, mostramos un círculo
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          }
+          // Si hay datos, es que el usuario ya inició sesión antes
+          if (snapshot.hasData) {
+            return const MapScreen(); 
+          }
+          // Si no, al Login
+          return const LoginScreen();
+        },
+      ),
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// A PARTIR DE AQUÍ ESTÁ TU CÓDIGO ORIGINAL DEL MAPA (INTACTO)
+// ---------------------------------------------------------------------------
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -46,7 +71,7 @@ class _MapScreenState extends State<MapScreen> {
   final FlutterTts _flutterTts = FlutterTts();
   
   // --- CONTROL DE VOZ ---
-  bool _voiceEnabled = true; // <--- NUEVA VARIABLE: Por defecto activada
+  bool _voiceEnabled = true;
 
   // --- DATOS BÁSICOS ---
   final List<LatLng> _routePoints = [];
@@ -84,7 +109,6 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _speak(String text) async {
-    // SI EL USUARIO LO HA SILENCIADO, NO HACEMOS NADA
     if (!_voiceEnabled) return; 
 
     await _flutterTts.stop(); 
@@ -353,15 +377,15 @@ class _MapScreenState extends State<MapScreen> {
 
   void _resetCarrera() {
      setState(() {
-        _routePoints.clear();
-        _totalDistance = 0.0;
-        _duration = Duration.zero;
-        _currentPosition = null;
-        _kmSplits.clear();
-        _bestRolling1k = null;
-        _bestRolling1kRange = "";
-        _history.clear();
-        _history.add((dist: 0, time: Duration.zero));
+       _routePoints.clear();
+       _totalDistance = 0.0;
+       _duration = Duration.zero;
+       _currentPosition = null;
+       _kmSplits.clear();
+       _bestRolling1k = null;
+       _bestRolling1kRange = "";
+       _history.clear();
+       _history.add((dist: 0, time: Duration.zero));
      });
   }
 
@@ -391,7 +415,7 @@ class _MapScreenState extends State<MapScreen> {
         elevation: 0, 
         surfaceTintColor: Colors.white,
         actions: [
-          // 1. BOTÓN DE SILENCIAR (NUEVO)
+          // 1. BOTÓN DE SILENCIAR
           IconButton(
             tooltip: _voiceEnabled ? "Silenciar Voz" : "Activar Voz",
             icon: Icon(
@@ -401,11 +425,9 @@ class _MapScreenState extends State<MapScreen> {
             onPressed: () {
               setState(() {
                 _voiceEnabled = !_voiceEnabled;
-                // Si la activamos, damos un pequeño feedback de audio
                 if (_voiceEnabled) _speak("Voz activada");
               });
               
-              // Feedback visual rápido
               ScaffoldMessenger.of(context).clearSnackBars();
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -416,7 +438,7 @@ class _MapScreenState extends State<MapScreen> {
             },
           ),
 
-          // 2. BOTÓN DE HISTORIAL (YA EXISTÍA)
+          // 2. BOTÓN DE HISTORIAL
           IconButton(
             icon: const Icon(Icons.history, color: Colors.black87),
             tooltip: "Ver Historial",
@@ -425,6 +447,17 @@ class _MapScreenState extends State<MapScreen> {
                 context,
                 MaterialPageRoute(builder: (context) => const HistoryScreen()),
               );
+            },
+          ),
+          
+          // 3. (OPCIONAL) BOTÓN DE SALIR (LOGOUT)
+          // Lo añadimos aquí para que puedas cerrar sesión si quieres probar el login otra vez
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            tooltip: "Cerrar Sesión",
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              // El StreamBuilder te llevará automáticamente al LoginScreen
             },
           ),
           const SizedBox(width: 8),

@@ -44,6 +44,7 @@ dependencies:
   firebase_core: ^3.1.0       # El núcleo obligatorio
   firebase_auth: ^5.1.0       # Para Loguearse
   cloud_firestore: ^5.0.1     # La base de datos
+  google_sign_in: ^6.2.1
 
 dev_dependencies:
   flutter_test:
