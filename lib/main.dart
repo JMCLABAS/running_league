@@ -8,10 +8,16 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart'; 
+
+// --- IMPORTS TUYOS ---
 import 'nickname_screen.dart';
 import 'db_helper.dart'; 
 import 'history_screen.dart';
 import 'login_screen.dart'; 
+import 'settings_screen.dart';
+
+// --- IMPORT NUEVO (El servicio que reparte a las ligas) ---
+import 'running_service.dart'; 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,7 +38,7 @@ class RunningLeagueApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      // --- PORTERO AUTOMÁTICO MEJORADO ---
+      // --- PORTERO AUTOMÁTICO ---
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
@@ -40,30 +46,21 @@ class RunningLeagueApp extends StatelessWidget {
             return const Scaffold(body: Center(child: CircularProgressIndicator()));
           }
           
-          // Si hay usuario logueado...
           if (snapshot.hasData) {
             final user = snapshot.data!;
             
-            // ... Y ADEMÁS tiene el correo verificado: Pasamos al Mapa
+            // Si tiene correo verificado, entra al mapa
             if (user.emailVerified) {
                return const MapScreen(); 
             }
-            // Si está logueado pero NO verificado, no le dejamos pasar.
-            // Se quedará viendo el LoginScreen (y tu lógica del Login le mostrará el error rojo)
           }
           
-          // Si no hay usuario o no está verificado, mostramos Login
           return const LoginScreen();
         },
       ),
     );
   }
 }
-
-// --------------------------------------------------------
-// A PARTIR DE AQUÍ EL RESTO ES IGUAL (MapScreen, etc...)
-// Solo asegúrate de no borrar la clase MapScreen que tienes debajo
-// --------------------------------------------------------
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -102,24 +99,35 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     _initTts();
 
+    // Comprobar si es usuario nuevo de Google
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkIfNewGoogleUser();
     });
   }
-void _checkIfNewGoogleUser() {
+
+  void _checkIfNewGoogleUser() {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null && user.metadata.creationTime != null) {
       
-      // 1. ¿Es usuario de Google? (Para no molestar a los de email que ya pusieron nombre)
+      // 1. ¿Es usuario de Google?
       bool isGoogleUser = user.providerData.any((info) => info.providerId == 'google.com');
 
-      // 2. ¿La cuenta es "fresca"? (Creada hace menos de 30 segundos)
-      // Si borras el usuario en Firebase y entras, la fecha de creación se resetea a AHORA.
+      // 2. ¿La cuenta es "fresca"? (Creada hace menos de 15 segundos)
       final difference = DateTime.now().difference(user.metadata.creationTime!);
       bool isRecent = difference.inSeconds < 15;
 
-      if (isGoogleUser && isRecent) {
-        // ¡Eres nuevo! Vamos a ponerte nombre.
+      // 3. ¿Tiene el nombre por defecto?
+      String? googleName;
+      for (var info in user.providerData) {
+        if (info.providerId == 'google.com') {
+          googleName = info.displayName;
+          break;
+        }
+      }
+
+      bool nameIsDefault = user.displayName == googleName || user.displayName == null || user.displayName!.isEmpty;
+
+      if (isGoogleUser && isRecent && nameIsDefault) {
         Navigator.push(
           context, 
           MaterialPageRoute(builder: (_) => const NicknameScreen())
@@ -127,6 +135,7 @@ void _checkIfNewGoogleUser() {
       }
     }
   }
+
   Future<void> _initTts() async {
     await _flutterTts.setLanguage("es-ES");
     await _flutterTts.setSpeechRate(0.5);
@@ -364,6 +373,7 @@ void _checkIfNewGoogleUser() {
                child: const Text('DESCARTAR', style: TextStyle(color: Colors.grey)),
             ),
             
+            // --- AQUÍ ESTÁ EL BOTÓN DE GUARDAR MODIFICADO ---
             ElevatedButton(
               onPressed: () async {
                 // 1. OBTENEMOS EL USUARIO 
@@ -376,6 +386,7 @@ void _checkIfNewGoogleUser() {
                    return;
                 }
 
+                // 2. PREPARAR DATOS PARA DB LOCAL
                 Map<String, dynamic> carreraParaGuardar = {
                   'userId': user.uid, 
                   'date': DateTime.now().toIso8601String(),
@@ -388,13 +399,35 @@ void _checkIfNewGoogleUser() {
                   'bestRollingRange': _bestRolling1kRange.isNotEmpty ? _bestRolling1kRange : "-",
                 };
 
+                // Guardar en SQLite (Local)
                 await DBHelper().insertRun(carreraParaGuardar);
 
+                // 3. GUARDAR EN LAS LIGAS (FIREBASE) -> INTEGRACIÓN NUEVA
+                try {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Sincronizando con tus ligas... ☁️")),
+                  );
+
+                  // Convertimos metros a Km para el servicio
+                  double distanciaEnKm = _totalDistance / 1000;
+                  
+                  // Llamada al servicio que reparte la carrera a todas las ligas
+                  await RunningService().saveRunToAllLeagues(
+                    distanceKm: distanciaEnKm,
+                    durationSeconds: _duration.inSeconds
+                  );
+
+                } catch (e) {
+                  print("Error al sincronizar con ligas: $e");
+                  // No bloqueamos el flujo si falla internet, los datos locales ya están a salvo.
+                }
+
+                // 4. LIMPIEZA Y CIERRE
                 _resetCarrera();
                 if (context.mounted) {
                    Navigator.of(context).pop();
                    ScaffoldMessenger.of(context).showSnackBar(
-                     const SnackBar(content: Text("✅ ¡Carrera guardada en TU cuenta!")),
+                     const SnackBar(content: Text("✅ ¡Carrera guardada y procesada!")),
                    );
                 }
               },
@@ -447,27 +480,40 @@ void _checkIfNewGoogleUser() {
         elevation: 0, 
         surfaceTintColor: Colors.white,
         actions: [
+
+          // 1. BOTÓN DE AJUSTES
           IconButton(
-            tooltip: _voiceEnabled ? "Silenciar Voz" : "Activar Voz",
-            icon: Icon(
-              _voiceEnabled ? Icons.volume_up : Icons.volume_off, 
-              color: _voiceEnabled ? Colors.blue : Colors.grey
-            ),
-            onPressed: () {
-              setState(() {
-                _voiceEnabled = !_voiceEnabled;
-                if (_voiceEnabled) _speak("Voz activada");
-              });
-              
-              ScaffoldMessenger.of(context).clearSnackBars();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(_voiceEnabled ? "🔊 Entrenador de voz ACTIVADO" : "🔇 Entrenador de voz SILENCIADO"),
-                  duration: const Duration(seconds: 1),
-                )
+            icon: const Icon(Icons.settings, color: Colors.grey),
+            tooltip: "Ajustes",
+            onPressed: () async {
+              final bool? result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SettingsScreen(
+                    currentVoiceEnabled: _voiceEnabled, 
+                  ),
+                ),
               );
+
+              if (result != null) {
+                setState(() {
+                  _voiceEnabled = result;
+                });
+                
+                if (mounted && result != _voiceEnabled) {
+                   ScaffoldMessenger.of(context).clearSnackBars();
+                   ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(result ? "🔊 Voz activada" : "🔇 Voz desactivada"), 
+                        duration: const Duration(seconds: 1)
+                      )
+                   );
+                }
+              }
             },
           ),
+
+          // 2. BOTÓN HISTORIAL
           IconButton(
             icon: const Icon(Icons.history, color: Colors.black87),
             tooltip: "Ver Historial",
@@ -478,6 +524,8 @@ void _checkIfNewGoogleUser() {
               );
             },
           ),
+
+          // 3. BOTÓN LOGOUT
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.redAccent),
             tooltip: "Cerrar Sesión",
