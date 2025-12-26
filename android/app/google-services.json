@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "517959143524",
+    "project_id": "running-league-app",
+    "storage_bucket": "running-league-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:517959143524:android:7ca1d619a5006541540f71",
+        "android_client_info": {
+          "package_name": "com.example.running_league"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAnoHPVBLJ3ZRK6MycBFDMnxKx_mJJf01M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

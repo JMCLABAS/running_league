@@ -5,13 +5,15 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:flutter_tts/flutter_tts.dart'; // <--- 1. IMPORTAMOS LA VOZ
+import 'package:flutter_tts/flutter_tts.dart';
 import 'db_helper.dart'; 
 import 'history_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('es', null); 
+  await Firebase.initializeApp();
   runApp(const RunningLeagueApp());
 }
 
@@ -41,8 +43,11 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
-  final FlutterTts _flutterTts = FlutterTts(); // <--- 2. EL OBJETO QUE HABLA
+  final FlutterTts _flutterTts = FlutterTts();
   
+  // --- CONTROL DE VOZ ---
+  bool _voiceEnabled = true; // <--- NUEVA VARIABLE: Por defecto activada
+
   // --- DATOS BÁSICOS ---
   final List<LatLng> _routePoints = [];
   LatLng? _currentPosition;
@@ -68,20 +73,20 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
-    _initTts(); // <--- 3. CONFIGURAMOS LA VOZ AL INICIAR
+    _initTts();
   }
 
-  // --- CONFIGURACIÓN DE VOZ ---
   Future<void> _initTts() async {
-    // Configuración básica para español
     await _flutterTts.setLanguage("es-ES");
-    await _flutterTts.setSpeechRate(0.5); // Velocidad normal (0.0 a 1.0)
+    await _flutterTts.setSpeechRate(0.5);
     await _flutterTts.setVolume(1.0);
     await _flutterTts.setPitch(1.0);
   }
 
   Future<void> _speak(String text) async {
-    // Si ya está hablando, lo paramos para decir lo nuevo (opcional)
+    // SI EL USUARIO LO HA SILENCIADO, NO HACEMOS NADA
+    if (!_voiceEnabled) return; 
+
     await _flutterTts.stop(); 
     if (text.isNotEmpty) {
       await _flutterTts.speak(text);
@@ -109,11 +114,13 @@ class _MapScreenState extends State<MapScreen> {
     return "$hours:$minutes:$seconds";
   }
 
-  // Helper para convertir texto de tiempo a voz natural (ej: "5 minutos 30 segundos")
   String _durationToSpeech(Duration d) {
     int min = d.inMinutes;
     int sec = d.inSeconds % 60;
-    return "$min minutos y $sec segundos";
+    String texto = "";
+    if (min > 0) texto += "$min minutos ";
+    if (sec > 0 || min == 0) texto += "$sec segundos";
+    return texto;
   }
 
   // --- EMPEZAR ---
@@ -127,8 +134,7 @@ class _MapScreenState extends State<MapScreen> {
       if (permission == LocationPermission.denied) return;
     }
 
-    // Aviso inicial de voz
-    _speak("Iniciando carrera. ¡Buena suerte!");
+    _speak("Iniciando carrera.");
 
     setState(() {
       _isTracking = true;
@@ -192,7 +198,6 @@ class _MapScreenState extends State<MapScreen> {
         // --- LÓGICA ESTADÍSTICAS ---
         _history.add((dist: _totalDistance, time: _stopwatch.elapsed));
 
-        // Mejor Km Continuo
         if (_totalDistance >= 1000) {
             double targetDist = _totalDistance - 1000;
             for (int i = _history.length - 1; i >= 0; i--) {
@@ -217,14 +222,11 @@ class _MapScreenState extends State<MapScreen> {
           _kmSplits.add(tiempoDeEsteKm);
           _lastSplitTime = _stopwatch.elapsed; 
           
-          // 1. Mensaje visual (SnackBar)
           ScaffoldMessenger.of(context).showSnackBar(
              SnackBar(content: Text("🏁 Km $currentKmIndex en ${_formatTime(tiempoDeEsteKm)}"), duration: const Duration(seconds: 2))
           );
 
-          // 2. MENSAJE DE VOZ (El Entrenador Fantasma) 🗣️
-          // Preparamos el texto: "Kilómetro 1 completado en 5 minutos y 30 segundos"
-          String speechText = "Kilómetro $currentKmIndex completado en ${_durationToSpeech(tiempoDeEsteKm)}";
+          String speechText = "Kilómetro $currentKmIndex en ${_durationToSpeech(tiempoDeEsteKm)}";
           _speak(speechText);
         }
       });
@@ -233,12 +235,12 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  // --- PARAR, GUARDAR Y MOSTRAR RESUMEN ---
+  // --- PARAR ---
   void _stopTracking() {
     _positionStream?.cancel();
     _timer?.cancel();
     _stopwatch.stop();
-    _speak("Entrenamiento finalizado."); // Voz final
+    _speak("Entrenamiento finalizado.");
 
     setState(() {
       _isTracking = false;
@@ -389,6 +391,32 @@ class _MapScreenState extends State<MapScreen> {
         elevation: 0, 
         surfaceTintColor: Colors.white,
         actions: [
+          // 1. BOTÓN DE SILENCIAR (NUEVO)
+          IconButton(
+            tooltip: _voiceEnabled ? "Silenciar Voz" : "Activar Voz",
+            icon: Icon(
+              _voiceEnabled ? Icons.volume_up : Icons.volume_off, 
+              color: _voiceEnabled ? Colors.blue : Colors.grey
+            ),
+            onPressed: () {
+              setState(() {
+                _voiceEnabled = !_voiceEnabled;
+                // Si la activamos, damos un pequeño feedback de audio
+                if (_voiceEnabled) _speak("Voz activada");
+              });
+              
+              // Feedback visual rápido
+              ScaffoldMessenger.of(context).clearSnackBars();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(_voiceEnabled ? "🔊 Entrenador de voz ACTIVADO" : "🔇 Entrenador de voz SILENCIADO"),
+                  duration: const Duration(seconds: 1),
+                )
+              );
+            },
+          ),
+
+          // 2. BOTÓN DE HISTORIAL (YA EXISTÍA)
           IconButton(
             icon: const Icon(Icons.history, color: Colors.black87),
             tooltip: "Ver Historial",

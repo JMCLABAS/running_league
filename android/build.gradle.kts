@@ -1,3 +1,16 @@
+// --- BLOQUE AÑADIDO PARA FIREBASE (Sintaxis Kotlin) ---
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // Fíjate en los paréntesis y comillas dobles
+        classpath("com.google.gms:google-services:4.4.2")
+    }
+}
+// -----------------------------------------------------
+
 allprojects {
     repositories {
         google()
@@ -5,10 +18,7 @@ allprojects {
     }
 }
 
-val newBuildDir: Directory =
-    rootProject.layout.buildDirectory
-        .dir("../../build")
-        .get()
+val newBuildDir: Directory = rootProject.layout.buildDirectory.dir("../../build").get()
 rootProject.layout.buildDirectory.value(newBuildDir)
 
 subprojects {
