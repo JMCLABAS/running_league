@@ -100,7 +100,7 @@ class _CreateLeagueScreenState extends State<CreateLeagueScreen> {
                     children: [
                       RadioListTile<String>(
                         title: const Text("Modo Fijo (Sencillo)"),
-                        subtitle: const Text("1 km = 10 puntos. Fácil de entender."),
+                        subtitle: const Text("1 km = 10 puntos."),
                         value: 'FIJO',
                         groupValue: _selectedSystem,
                         onChanged: (val) => setState(() => _selectedSystem = val!),

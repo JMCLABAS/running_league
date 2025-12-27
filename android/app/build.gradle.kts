@@ -7,6 +7,17 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+// --- ZONA CORREGIDA (Traducción a Kotlin) ---
+import java.util.Properties
+import java.io.FileInputStream
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+// --------------------------------------------
+
 android {
     namespace = "com.example.running_league"
     compileSdk = flutter.compileSdkVersion
@@ -24,21 +35,32 @@ android {
     defaultConfig {
         applicationId = "com.example.running_league"
         
-        // --- CAMBIO IMPORTANTE ---
-        // Firebase requiere mínimo API 21 o 23. Ponemos 23 para ir seguros.
+        // Firebase requiere mínimo API 21 o 23.
         minSdk = flutter.minSdkVersion 
-        // -------------------------
-
+        
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    // --- ZONA FIRMA DIGITAL (Traducción a Kotlin) ---
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreProperties["keyAlias"] as String
+            keyPassword = keystoreProperties["keyPassword"] as String
+            storeFile = file(keystoreProperties["storeFile"] as String)
+            storePassword = keystoreProperties["storePassword"] as String
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Añadir tu propia configuración de firma para release.
-            // Por ahora usamos la clave de debug para que funcione "flutter run --release".
-            signingConfig = signingConfigs.getByName("debug")
+            // Asignamos la configuración creada arriba
+            signingConfig = signingConfigs.getByName("release")
+            
+            // Opciones de optimización (por ahora desactivadas para evitar errores)
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
@@ -47,7 +69,6 @@ flutter {
     source = "../.."
 }
 
-// --- BLOQUE DE DEPENDENCIAS AÑADIDO ---
 dependencies {
     // 1. Plataforma Firebase (Controla las versiones automáticamente)
     implementation(platform("com.google.firebase:firebase-bom:33.1.0"))

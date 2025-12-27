@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'player_profile_screen.dart'; // Asegúrate de que este archivo existe
 
 class RankingScreen extends StatelessWidget {
   final String leagueId;
@@ -57,8 +58,7 @@ class RankingScreen extends StatelessWidget {
             if (scores.containsKey(uid)) {
               scores[uid] = scores[uid]! + points;
             } else {
-              // Si por error hay una actividad de alguien que ya no está en la liga, lo añadimos o ignoramos.
-              // Aquí lo añadimos por seguridad.
+              // Si por error hay una actividad de alguien que ya no está en la liga
               scores[uid] = points;
             }
           }
@@ -125,20 +125,16 @@ class _UserRankingRow extends StatelessWidget {
     }
 
     return FutureBuilder<DocumentSnapshot>(
-      // Asumimos que existe una colección 'users' con los perfiles
-      // Si usas solo FirebaseAuth, el nombre no es público, así que lo ideal es tener esta colección.
       future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
       builder: (context, snapshot) {
-        String displayName = "Corredor ..."; // Cargando...
+        String displayName = "Cargando..."; 
         String? avatarUrl;
 
         if (snapshot.hasData && snapshot.data!.exists) {
           final data = snapshot.data!.data() as Map<String, dynamic>?;
-          // Intenta buscar campos comunes de nombre
           displayName = data?['displayName'] ?? data?['name'] ?? data?['nickname'] ?? "Corredor Desconocido";
           avatarUrl = data?['photoURL'];
         } else if (snapshot.connectionState == ConnectionState.done) {
-            // Si no encontramos el usuario en la DB, mostramos parte del ID
             displayName = "Runner ${uid.substring(0, 5)}"; 
         }
 
@@ -152,6 +148,19 @@ class _UserRankingRow extends StatelessWidget {
               side: position == 1 ? const BorderSide(color: Color(0xFFFFD700), width: 2) : BorderSide.none
             ),
             child: ListTile(
+              // --- NAVEGACIÓN AL PERFIL AL TOCAR ---
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => PlayerProfileScreen(
+                      userId: uid,
+                      userName: displayName,
+                    ),
+                  ),
+                );
+              },
+              // -------------------------------------
               leading: CircleAvatar(
                 backgroundColor: badgeColor,
                 foregroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
