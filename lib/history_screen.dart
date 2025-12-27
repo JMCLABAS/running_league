@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart'; 
-import 'package:firebase_auth/firebase_auth.dart'; // <--- IMPORTANTE: Para saber quién eres
+import 'package:firebase_auth/firebase_auth.dart';
 import 'db_helper.dart';
-import 'login_screen.dart'; // Para volver al login al salir
+import 'login_screen.dart'; 
 import 'package:google_sign_in/google_sign_in.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -21,28 +21,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _refreshRuns();
   }
 
-  // --- CAMBIO CLAVE: AHORA FILTRAMOS POR USUARIO ---
   void _refreshRuns() {
     setState(() {
       final user = FirebaseAuth.instance.currentUser;
       
       if (user != null) {
-        // Si hay usuario, pedimos SUS carreras
         _runHistory = DBHelper().getUserRuns(user.uid);
       } else {
-        // Si no hay usu
-        //ario (raro), devolvemos lista vacía
         _runHistory = Future.value([]);
       }
     });
   }
 
-  // --- LOGOUT (Para probar cuentas distintas) ---
+  // --- LOGOUT ELIMINADO DE LA INTERFAZ PERO MANTENIDO EN EL CÓDIGO POR SI ACASO ---
   Future<void> _signOut() async {
     await FirebaseAuth.instance.signOut();
     await GoogleSignIn().signOut();
     if (mounted) {
-      // Volvemos a la pantalla de Login y borramos el historial de navegación
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const LoginScreen()),
       );
@@ -84,7 +79,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Obtenemos el usuario para mostrar su email o foto si quisiéramos
     final user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
@@ -93,14 +87,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         title: const Text('Mi Historial 🏃‍♂️'),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
-        actions: [
-          // BOTÓN DE CERRAR SESIÓN (Nuevo)
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.redAccent),
-            tooltip: "Cerrar Sesión",
-            onPressed: _signOut,
-          )
-        ],
+        // --- AQUÍ HE ELIMINADO LA SECCIÓN ACTIONS ---
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _runHistory,

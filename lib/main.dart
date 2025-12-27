@@ -7,9 +7,11 @@ import 'package:flutter/foundation.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart'; 
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:permission_handler/permission_handler.dart'; 
 
 // --- IMPORTS DE PANTALLAS ---
+import 'run_summary_screen.dart';
 import 'leagues_screen.dart'; 
 import 'nickname_screen.dart';
 import 'db_helper.dart'; 
@@ -39,7 +41,6 @@ class RunningLeagueApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      // --- PORTERO AUTOMÁTICO ---
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
@@ -49,7 +50,6 @@ class RunningLeagueApp extends StatelessWidget {
           
           if (snapshot.hasData) {
             final user = snapshot.data!;
-            // Si tiene correo verificado, entra al mapa
             if (user.emailVerified) {
                return const MapScreen(); 
             }
@@ -75,6 +75,9 @@ class _MapScreenState extends State<MapScreen> {
   
   bool _voiceEnabled = true;
 
+  // --- VARIABLE DE MEMORIA: PARA NO PREGUNTAR 2 VECES ---
+  bool _hasAskedBatteryInfo = false;
+
   final List<LatLng> _routePoints = [];
   LatLng? _currentPosition;
   double _totalDistance = 0.0;
@@ -99,7 +102,6 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     _initTts();
 
-    // Comprobar si es usuario nuevo de Google
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkIfNewGoogleUser();
     });
@@ -108,15 +110,10 @@ class _MapScreenState extends State<MapScreen> {
   void _checkIfNewGoogleUser() {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null && user.metadata.creationTime != null) {
-      
-      // 1. ¿Es usuario de Google?
       bool isGoogleUser = user.providerData.any((info) => info.providerId == 'google.com');
-
-      // 2. ¿La cuenta es "fresca"? (Creada hace menos de 15 segundos)
       final difference = DateTime.now().difference(user.metadata.creationTime!);
       bool isRecent = difference.inSeconds < 15;
 
-      // 3. ¿Tiene el nombre por defecto?
       String? googleName;
       for (var info in user.providerData) {
         if (info.providerId == 'google.com') {
@@ -182,14 +179,73 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _startTracking() async {
+    // 1. Verificar servicios de ubicación
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
+    if (!serviceEnabled) {
+       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("⚠️ Activa el GPS para empezar")),
+        );
+       }
+       return;
+    }
 
+    // 2. Verificar permisos de ubicación
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return;
     }
+
+    // -------------------------------------------------------------
+    // 3. COMPROBACIÓN DE BATERÍA (SOLO UNA VEZ POR SESIÓN)
+    // -------------------------------------------------------------
+    
+    // Solo preguntamos si NO hemos preguntado antes en esta sesión
+    if (!_hasAskedBatteryInfo) {
+      var batteryStatus = await Permission.ignoreBatteryOptimizations.status;
+      
+      // Si el sistema dice que NO tenemos permiso...
+      if (!batteryStatus.isGranted) {
+        if (mounted) {
+          // ... Mostramos el diálogo Y marcamos que ya hemos preguntado.
+          // Así, si el usuario da permiso pero el sistema no se entera, no molestamos más.
+          setState(() {
+            _hasAskedBatteryInfo = true;
+          });
+
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text("⚠️ Ajuste Importante"),
+              content: const Text(
+                "Para grabar la ruta con la pantalla apagada, el móvil no debe restringir la batería.\n\n"
+                "1. Toca 'Abrir Ajustes'.\n"
+                "2. Busca 'Ahorro de batería' o 'Batería'.\n"
+                "3. Selecciona 'Sin restricciones' o 'No optimizar'."
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Ahora no"),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await openAppSettings();
+                  },
+                  child: const Text("Abrir Ajustes"),
+                ),
+              ],
+            ),
+          );
+        }
+      } else {
+        // Si ya lo tiene, perfecto, marcamos también para ahorrar comprobaciones
+        _hasAskedBatteryInfo = true;
+      }
+    }
+    // -------------------------------------------------------------
 
     _speak("Iniciando carrera.");
 
@@ -198,15 +254,12 @@ class _MapScreenState extends State<MapScreen> {
       _routePoints.clear();
       _totalDistance = 0.0;
       _duration = Duration.zero;
-      
       _history.clear();
       _history.add((dist: 0, time: Duration.zero));
-
       _bestRolling1k = null;
       _bestRolling1kRange = "";
       _kmSplits.clear();
       _lastSplitTime = Duration.zero;
-
       _stopwatch.reset();
       _stopwatch.start();
     });
@@ -248,10 +301,8 @@ class _MapScreenState extends State<MapScreen> {
           double stepDistance = _distanceCalculator.as(LengthUnit.Meter, _routePoints.last, newPoint);
           _totalDistance += stepDistance;
         }
-        
         _currentPosition = newPoint;
         _routePoints.add(newPoint);
-
         _history.add((dist: _totalDistance, time: _stopwatch.elapsed));
 
         if (_totalDistance >= 1000) {
@@ -280,12 +331,10 @@ class _MapScreenState extends State<MapScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
              SnackBar(content: Text("🏁 Km $currentKmIndex en ${_formatTime(tiempoDeEsteKm)}"), duration: const Duration(seconds: 2))
           );
-
           String speechText = "Kilómetro $currentKmIndex en ${_durationToSpeech(tiempoDeEsteKm)}";
           _speak(speechText);
         }
       });
-
       _mapController.move(newPoint, 17.0);
     });
   }
@@ -373,12 +422,9 @@ class _MapScreenState extends State<MapScreen> {
                child: const Text('DESCARTAR', style: TextStyle(color: Colors.grey)),
             ),
             
-            // --- BOTÓN DE GUARDAR (CON DB LOCAL + FIREBASE LIGAS) ---
             ElevatedButton(
               onPressed: () async {
-                // 1. OBTENEMOS EL USUARIO 
                 final user = FirebaseAuth.instance.currentUser;
-                
                 if (user == null) {
                    ScaffoldMessenger.of(context).showSnackBar(
                      const SnackBar(content: Text("⚠️ Error: No hay usuario identificado")),
@@ -386,7 +432,7 @@ class _MapScreenState extends State<MapScreen> {
                    return;
                 }
 
-                // 2. PREPARAR DATOS PARA DB LOCAL
+                // 1. Guardar en BD Local
                 Map<String, dynamic> carreraParaGuardar = {
                   'userId': user.uid, 
                   'date': DateTime.now().toIso8601String(),
@@ -399,35 +445,42 @@ class _MapScreenState extends State<MapScreen> {
                   'bestRollingRange': _bestRolling1kRange.isNotEmpty ? _bestRolling1kRange : "-",
                 };
 
-                // Guardar en SQLite (Local)
                 await DBHelper().insertRun(carreraParaGuardar);
 
-                // 3. GUARDAR EN LAS LIGAS (FIREBASE)
+                // 2. Guardar en Ligas y Obtener Resultados
+                List<Map<String, dynamic>> resultadosLigas = [];
+                double finalDistKm = _totalDistance / 1000;
+                Duration finalDuration = _duration; 
+
                 try {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Sincronizando con tus ligas... ☁️")),
+                    const SnackBar(content: Text("Procesando carrera... ☁️"), duration: Duration(seconds: 1)),
                   );
-
-                  // Convertimos metros a Km para el servicio
-                  double distanciaEnKm = _totalDistance / 1000;
                   
-                  // Llamada al servicio que reparte la carrera a todas las ligas
-                  await RunningService().saveRunToAllLeagues(
-                    distanceKm: distanciaEnKm,
-                    durationSeconds: _duration.inSeconds
+                  resultadosLigas = await RunningService().saveRunToAllLeagues(
+                    distanceKm: finalDistKm,
+                    durationSeconds: finalDuration.inSeconds
                   );
 
                 } catch (e) {
                   print("Error al sincronizar con ligas: $e");
-                  // No bloqueamos el flujo si falla internet, los datos locales ya están a salvo.
                 }
 
-                // 4. LIMPIEZA Y CIERRE
+                // 3. Limpiar y Navegar
                 _resetCarrera();
+                
                 if (context.mounted) {
-                   Navigator.of(context).pop();
-                   ScaffoldMessenger.of(context).showSnackBar(
-                     const SnackBar(content: Text("✅ ¡Carrera guardada y procesada!")),
+                   Navigator.of(context).pop(); 
+                   
+                   Navigator.push(
+                     context,
+                     MaterialPageRoute(
+                       builder: (context) => RunSummaryScreen(
+                         distanceKm: finalDistKm,
+                         duration: finalDuration,
+                         leagueResults: resultadosLigas,
+                       ),
+                     ),
                    );
                 }
               },
@@ -480,40 +533,6 @@ class _MapScreenState extends State<MapScreen> {
         elevation: 0, 
         surfaceTintColor: Colors.white,
         actions: [
-
-          // 1. BOTÓN DE AJUSTES
-          IconButton(
-            icon: const Icon(Icons.settings, color: Colors.grey),
-            tooltip: "Ajustes",
-            onPressed: () async {
-              final bool? result = await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => SettingsScreen(
-                    currentVoiceEnabled: _voiceEnabled, 
-                  ),
-                ),
-              );
-
-              if (result != null) {
-                setState(() {
-                  _voiceEnabled = result;
-                });
-                
-                if (mounted && result != _voiceEnabled) {
-                   ScaffoldMessenger.of(context).clearSnackBars();
-                   ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(result ? "🔊 Voz activada" : "🔇 Voz desactivada"), 
-                        duration: const Duration(seconds: 1)
-                      )
-                   );
-                }
-              }
-            },
-          ),
-
-          // 2. BOTÓN HISTORIAL
           IconButton(
             icon: const Icon(Icons.history, color: Colors.black87),
             tooltip: "Ver Historial",
@@ -524,20 +543,10 @@ class _MapScreenState extends State<MapScreen> {
               );
             },
           ),
-
-          // 3. BOTÓN LOGOUT
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.redAccent),
-            tooltip: "Cerrar Sesión",
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-            },
-          ),
           const SizedBox(width: 8),
         ],
       ),
       
-      // --- MENÚ LATERAL (DRAWER) LIMPIO ---
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -557,20 +566,40 @@ class _MapScreenState extends State<MapScreen> {
             ListTile(
               leading: const Icon(Icons.map),
               title: const Text('Mapa'),
-              onTap: () => Navigator.pop(context), // Cerrar menú
+              onTap: () => Navigator.pop(context), 
             ),
             ListTile(
               leading: const Icon(Icons.emoji_events),
               title: const Text('Mis Ligas'),
               onTap: () {
-                Navigator.pop(context); // Cerrar menú primero
+                Navigator.pop(context); 
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const LeaguesScreen()),
                 );
               },
             ),
-            // AQUÍ YA NO ESTÁ EL BOTÓN DE FIX :)
+            ListTile(
+              leading: const Icon(Icons.settings),
+              title: const Text('Ajustes'),
+              onTap: () async {
+                Navigator.pop(context);
+                final bool? result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => SettingsScreen(
+                      currentVoiceEnabled: _voiceEnabled, 
+                    ),
+                  ),
+                );
+
+                if (result != null) {
+                  setState(() {
+                    _voiceEnabled = result;
+                  });
+                }
+              },
+            ),
           ],
         ),
       ),

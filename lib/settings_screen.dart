@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // <--- AHORA NECESARIO
+import 'package:cloud_firestore/cloud_firestore.dart'; 
 
 class SettingsScreen extends StatefulWidget {
   final bool currentVoiceEnabled;
@@ -15,7 +15,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _voiceEnabled;
   final _nicknameController = TextEditingController();
   
-  // Obtenemos el usuario actual
   final User? user = FirebaseAuth.instance.currentUser;
   
   bool _isUpdatingName = false;
@@ -24,8 +23,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _voiceEnabled = widget.currentVoiceEnabled;
-    
-    // Cargar nombre actual
     _nicknameController.text = user?.displayName ?? "";
   }
 
@@ -44,23 +41,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       if (user == null) throw Exception("No hay usuario logueado");
 
-      // 1. ACTUALIZAR EN AUTH (Perfil Privado)
+      // 1. ACTUALIZAR EN AUTH
       await user!.updateDisplayName(newName);
       await user!.reload(); 
       
-      // 2. ACTUALIZAR EN FIRESTORE (Perfil Público para Ranking) [NUEVO]
+      // 2. ACTUALIZAR EN FIRESTORE
       await FirebaseFirestore.instance.collection('users').doc(user!.uid).set({
         'displayName': newName,
         'email': user!.email,
         'photoURL': user!.photoURL,
         'lastUpdated': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true)); // 'merge' protege otros datos si existen
+      }, SetOptions(merge: true));
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("✅ Perfil y Ranking actualizados"), backgroundColor: Colors.green),
         );
-        FocusScope.of(context).unfocus(); // Cerrar teclado
+        FocusScope.of(context).unfocus();
       }
     } catch (e) {
       if (mounted) {
@@ -73,6 +70,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _goBack() {
     Navigator.pop(context, _voiceEnabled);
+  }
+
+  // --- FUNCIÓN REAL DE CERRAR SESIÓN ---
+  Future<void> _signOut() async {
+    await FirebaseAuth.instance.signOut();
+    if (mounted) {
+      // Volver a la primera pantalla (que será Login)
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+  }
+
+  // --- NUEVA FUNCIÓN: DIÁLOGO DE CONFIRMACIÓN ---
+  void _confirmSignOut() {
+    showDialog(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          title: const Text("¿Cerrar Sesión?"),
+          content: const Text("¿Seguro que quieres cerrar sesión?"),
+          actions: [
+            // Botón Cancelar
+            TextButton(
+              onPressed: () {
+                Navigator.of(ctx).pop(); // Cierra el diálogo sin hacer nada
+              },
+              child: const Text("No, Cancelar", style: TextStyle(color: Colors.grey)),
+            ),
+            // Botón Confirmar
+            TextButton(
+              onPressed: () {
+                Navigator.of(ctx).pop(); // Cierra el diálogo primero
+                _signOut(); // Ejecuta la salida real
+              },
+              child: const Text("Sí, Cerrar Sesión", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -152,8 +188,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
+
+            const SizedBox(height: 30),
+            const Text("SESIÓN", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 10),
+
+            // --- BOTÓN DE CERRAR SESIÓN (Ahora llama a _confirmSignOut) ---
+            Card(
+              elevation: 2,
+              color: Colors.red[50],
+              child: ListTile(
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text("Cerrar Sesión", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                onTap: _confirmSignOut, // <--- AQUÍ ESTÁ EL CAMBIO
+              ),
+            ),
             
-            const SizedBox(height: 20),
+            const SizedBox(height: 40),
             const Center(
               child: Text(
                 "Running League v1.0", 
