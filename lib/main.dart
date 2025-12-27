@@ -10,7 +10,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart'; 
 
 // --- IMPORTS DE PANTALLAS ---
-import 'leagues_screen.dart'; // <--- Importante para que funcione la navegación a Ligas
+import 'leagues_screen.dart'; 
 import 'nickname_screen.dart';
 import 'db_helper.dart'; 
 import 'history_screen.dart';
@@ -49,7 +49,6 @@ class RunningLeagueApp extends StatelessWidget {
           
           if (snapshot.hasData) {
             final user = snapshot.data!;
-            
             // Si tiene correo verificado, entra al mapa
             if (user.emailVerified) {
                return const MapScreen(); 
@@ -538,7 +537,7 @@ class _MapScreenState extends State<MapScreen> {
         ],
       ),
       
-      // --- MENÚ LATERAL (DRAWER) PARA NAVEGAR A LIGAS ---
+      // --- MENÚ LATERAL (DRAWER) LIMPIO ---
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -571,6 +570,7 @@ class _MapScreenState extends State<MapScreen> {
                 );
               },
             ),
+            // AQUÍ YA NO ESTÁ EL BOTÓN DE FIX :)
           ],
         ),
       ),

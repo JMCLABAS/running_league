@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart'; 
 import 'create_league_screen.dart'; 
+import 'ranking_screen.dart';
 
 class LeaguesScreen extends StatefulWidget {
   const LeaguesScreen({super.key});
@@ -128,9 +129,16 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
                 clipBehavior: Clip.antiAlias, // Para que el InkWell respete los bordes redondos
                 child: InkWell(
                   onTap: () {
-                     // AQUÍ IRÁ LA NAVEGACIÓN AL RANKING
-                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Próximamente: Ver Ranking")));
-                  },
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => RankingScreen(
+        leagueId: leagueId,
+        leagueData: league,
+      ),
+    ),
+  );
+},
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: Row(

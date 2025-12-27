@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // <--- AHORA NECESARIO
 
 class SettingsScreen extends StatefulWidget {
   final bool currentVoiceEnabled;
@@ -14,7 +15,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _voiceEnabled;
   final _nicknameController = TextEditingController();
   
-  // Obtenemos el usuario actual (puede ser null teóricamente)
+  // Obtenemos el usuario actual
   final User? user = FirebaseAuth.instance.currentUser;
   
   bool _isUpdatingName = false;
@@ -24,30 +25,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _voiceEnabled = widget.currentVoiceEnabled;
     
-    // --- AQUÍ ESTABA EL ERROR ---
-    // Usamos el operador '?.' y '??'
-    // Significa: "Si user existe, dame su nombre. Si es nulo, usa comillas vacías".
+    // Cargar nombre actual
     _nicknameController.text = user?.displayName ?? "";
   }
 
   Future<void> _updateNickname() async {
-    if (_nicknameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("El nombre no puede estar vacío")));
+    String newName = _nicknameController.text.trim();
+
+    if (newName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("El nombre no puede estar vacío"))
+      );
       return;
     }
 
     setState(() => _isUpdatingName = true);
 
     try {
-      // Usamos ?. también aquí para evitar errores si se cerró sesión de golpe
-      await user?.updateDisplayName(_nicknameController.text.trim());
-      await user?.reload(); 
+      if (user == null) throw Exception("No hay usuario logueado");
+
+      // 1. ACTUALIZAR EN AUTH (Perfil Privado)
+      await user!.updateDisplayName(newName);
+      await user!.reload(); 
       
+      // 2. ACTUALIZAR EN FIRESTORE (Perfil Público para Ranking) [NUEVO]
+      await FirebaseFirestore.instance.collection('users').doc(user!.uid).set({
+        'displayName': newName,
+        'email': user!.email,
+        'photoURL': user!.photoURL,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)); // 'merge' protege otros datos si existen
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("✅ Nickname actualizado"), backgroundColor: Colors.green),
+          const SnackBar(content: Text("✅ Perfil y Ranking actualizados"), backgroundColor: Colors.green),
         );
-        FocusScope.of(context).unfocus();
+        FocusScope.of(context).unfocus(); // Cerrar teclado
       }
     } catch (e) {
       if (mounted) {
@@ -100,7 +113,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
 
             const SizedBox(height: 30),
-            const Text("MI PERFIL", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
+            const Text("MI PERFIL (RANKING)", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
             const SizedBox(height: 10),
 
             Card(
@@ -111,6 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text("Tu Nickname público"),
+                    const Text("Este nombre aparecerá en las tablas de la liga.", style: TextStyle(fontSize: 10, color: Colors.grey)),
                     const SizedBox(height: 10),
                     Row(
                       children: [
