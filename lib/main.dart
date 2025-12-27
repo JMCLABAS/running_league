@@ -9,14 +9,15 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart'; 
 
-// --- IMPORTS TUYOS ---
+// --- IMPORTS DE PANTALLAS ---
+import 'leagues_screen.dart'; // <--- Importante para que funcione la navegación a Ligas
 import 'nickname_screen.dart';
 import 'db_helper.dart'; 
 import 'history_screen.dart';
 import 'login_screen.dart'; 
 import 'settings_screen.dart';
 
-// --- IMPORT NUEVO (El servicio que reparte a las ligas) ---
+// --- IMPORT DE SERVICIOS ---
 import 'running_service.dart'; 
 
 void main() async {
@@ -373,7 +374,7 @@ class _MapScreenState extends State<MapScreen> {
                child: const Text('DESCARTAR', style: TextStyle(color: Colors.grey)),
             ),
             
-            // --- AQUÍ ESTÁ EL BOTÓN DE GUARDAR MODIFICADO ---
+            // --- BOTÓN DE GUARDAR (CON DB LOCAL + FIREBASE LIGAS) ---
             ElevatedButton(
               onPressed: () async {
                 // 1. OBTENEMOS EL USUARIO 
@@ -402,7 +403,7 @@ class _MapScreenState extends State<MapScreen> {
                 // Guardar en SQLite (Local)
                 await DBHelper().insertRun(carreraParaGuardar);
 
-                // 3. GUARDAR EN LAS LIGAS (FIREBASE) -> INTEGRACIÓN NUEVA
+                // 3. GUARDAR EN LAS LIGAS (FIREBASE)
                 try {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text("Sincronizando con tus ligas... ☁️")),
@@ -537,6 +538,43 @@ class _MapScreenState extends State<MapScreen> {
         ],
       ),
       
+      // --- MENÚ LATERAL (DRAWER) PARA NAVEGAR A LIGAS ---
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            const DrawerHeader(
+              decoration: BoxDecoration(color: Colors.blueAccent),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Icon(Icons.directions_run, color: Colors.white, size: 50),
+                  SizedBox(height: 10),
+                  Text("Running League", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.map),
+              title: const Text('Mapa'),
+              onTap: () => Navigator.pop(context), // Cerrar menú
+            ),
+            ListTile(
+              leading: const Icon(Icons.emoji_events),
+              title: const Text('Mis Ligas'),
+              onTap: () {
+                Navigator.pop(context); // Cerrar menú primero
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const LeaguesScreen()),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+
       body: Stack(
         children: [
           FlutterMap(
