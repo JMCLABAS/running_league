@@ -82,6 +82,8 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
       "¡Únete a mi liga '$nombreLiga'! 🏃💨\n\n"
       "1. Instala la App primero.\n"
       "2. Pincha este enlace para entrar:\n$link"
+
+      "Tambien puedes unirte manualmente pulsando Unirse y pegando este código: $leagueId"
     );
   }
 
