@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart'; 
+import 'package:share_plus/share_plus.dart'; // <--- IMPORTANTE: Necesario para compartir
 import 'create_league_screen.dart'; 
 import 'ranking_screen.dart';
 
@@ -71,6 +72,19 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
     }
   }
 
+  // --- NUEVA FUNCIÓN PARA COMPARTIR ---
+  // --- FUNCIÓN PARA COMPARTIR (FORMATO HTTP) ---
+  void _compartirLiga(String nombreLiga, String leagueId) {
+    // Usamos un dominio "falso" pero con http para que WhatsApp lo ponga azul
+    final String link = "https://running-league-app.web.app/unirse?id=$leagueId";
+    
+    Share.share(
+      "¡Únete a mi liga '$nombreLiga'! 🏃💨\n\n"
+      "1. Instala la App primero.\n"
+      "2. Pincha este enlace para entrar:\n$link"
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (user == null) return const Scaffold(body: Center(child: Text("No logueado")));
@@ -126,19 +140,19 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
               return Card(
                 elevation: 4,
                 margin: const EdgeInsets.only(bottom: 16),
-                clipBehavior: Clip.antiAlias, // Para que el InkWell respete los bordes redondos
+                clipBehavior: Clip.antiAlias,
                 child: InkWell(
                   onTap: () {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => RankingScreen(
-        leagueId: leagueId,
-        leagueData: league,
-      ),
-    ),
-  );
-},
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => RankingScreen(
+                          leagueId: leagueId,
+                          leagueData: league,
+                        ),
+                      ),
+                    );
+                  },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: Row(
@@ -153,7 +167,7 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
                           ),
                         ),
                         
-                        const SizedBox(width: 16), // Espacio
+                        const SizedBox(width: 16), 
 
                         // 2. TEXTOS (Centro - Flexible)
                         Expanded(
@@ -174,31 +188,33 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
                           ),
                         ),
 
-                        // 3. BOTÓN COPIAR (Derecha - Sin límites de altura)
-                        InkWell(
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: () async {
-                             await Clipboard.setData(ClipboardData(text: leagueId));
-                             if (context.mounted) {
-                               ScaffoldMessenger.of(context).showSnackBar(
-                                 SnackBar(content: Text("ID copiado: $leagueId"), duration: const Duration(seconds: 1))
-                               );
-                             }
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.copy, color: Colors.blueGrey),
-                                const SizedBox(height: 4),
-                                const Text(
-                                  "Copiar ID", 
-                                  style: TextStyle(fontSize: 10, color: Colors.blueGrey, fontWeight: FontWeight.bold)
-                                ),
-                              ],
+                        // 3. BOTONES DE ACCIÓN (Derecha)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // BOTÓN COPIAR ID
+                            IconButton(
+                                icon: const Icon(Icons.copy, color: Colors.blueGrey, size: 20),
+                                tooltip: "Copiar ID",
+                                onPressed: () async {
+                                  await Clipboard.setData(ClipboardData(text: leagueId));
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text("ID copiado: $leagueId"), duration: const Duration(seconds: 1))
+                                    );
+                                  }
+                                },
                             ),
-                          ),
+                            
+                            // --- NUEVO BOTÓN COMPARTIR ---
+                            IconButton(
+                                icon: const Icon(Icons.share, color: Colors.green, size: 20),
+                                tooltip: "Invitar Amigos",
+                                onPressed: () {
+                                    _compartirLiga(league['nombre'], leagueId);
+                                },
+                            ),
+                          ],
                         ),
                       ],
                     ),

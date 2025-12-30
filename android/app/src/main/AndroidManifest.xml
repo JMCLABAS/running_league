@@ -26,10 +26,21 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                
+                <data android:scheme="https" />
+                <data android:host="running-league-app.web.app" /> <data android:pathPrefix="/unirse" />
+            </intent-filter>
+
         </activity>
 
         <service
@@ -37,6 +48,7 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location" />
+        
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

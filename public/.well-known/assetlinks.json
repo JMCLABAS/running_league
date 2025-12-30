@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.example.running_league",
+      "sha256_cert_fingerprints": [
+        "93:8A:97:38:16:EB:3B:AF:88:4F:57:7F:3C:58:10:00:F2:C2:BD:7C:55:52:52:4D:CB:FA:BB:43:29:F1:91:E4"
+      ]
+    }
+  }
+]

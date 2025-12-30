@@ -8,7 +8,10 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // <--- AÑADIDO (Necesario para unirse a la liga)
 import 'package:permission_handler/permission_handler.dart'; 
+import 'package:app_links/app_links.dart'; 
+import 'package:share_plus/share_plus.dart'; 
 
 // --- IMPORTS DE PANTALLAS ---
 import 'run_summary_screen.dart';
@@ -73,9 +76,12 @@ class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   final FlutterTts _flutterTts = FlutterTts();
   
-  bool _voiceEnabled = true;
+  // --- VARIABLES DEEP LINKS ---
+  late AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+  // ---------------------------
 
-  // --- VARIABLE DE MEMORIA: PARA NO PREGUNTAR 2 VECES ---
+  bool _voiceEnabled = true;
   bool _hasAskedBatteryInfo = false;
 
   final List<LatLng> _routePoints = [];
@@ -101,11 +107,96 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     _initTts();
+    
+    // Inicializar Deep Links
+    initDeepLinks();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkIfNewGoogleUser();
     });
   }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel(); // Cancelar escucha de links
+    _positionStream?.cancel();
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  // --- LÓGICA DEEP LINKS ---
+  Future<void> initDeepLinks() async {
+    _appLinks = AppLinks();
+
+    // Escuchar enlaces entrantes (incluso si la app estaba cerrada)
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      procesarEnlace(uri);
+    });
+  }
+
+  void procesarEnlace(Uri uri) {
+    // El enlace ahora es: http://running-league.app/unirse?id=CODIGO
+    
+    // Verificamos si el host coincide
+if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {      final leagueId = uri.queryParameters['id'];
+      
+      if (leagueId != null) {
+        print("🔗 Enlace HTTP detectado para liga: $leagueId");
+        _unirseAutomaticamente(leagueId);
+      }
+    }
+    // Mantenemos compatibilidad con el antiguo por si acaso
+    else if (uri.scheme == 'runningleague' && uri.host == 'unirse') {
+      final leagueId = uri.queryParameters['id'];
+      if (leagueId != null) _unirseAutomaticamente(leagueId);
+    }
+  }
+
+  Future<void> _unirseAutomaticamente(String leagueId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return; 
+
+    try {
+      // 1. Verificar si la liga existe
+      final ligaDoc = await FirebaseFirestore.instance.collection('leagues').doc(leagueId).get();
+      
+      if (!ligaDoc.exists) {
+        if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ Esa liga no existe')));
+        }
+        return;
+      }
+
+      // 2. Unirse (Añadir UID al array)
+      await FirebaseFirestore.instance.collection('leagues').doc(leagueId).update({
+        'participantes': FieldValue.arrayUnion([user.uid])
+      });
+      
+      // 3. Avisar al usuario
+      if (mounted) {
+        showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+            title: const Text("¡Bienvenido! 🏃‍♂️"),
+            content: Text("Te has unido correctamente a: ${ligaDoc.data()?['nombre']}"),
+            actions: [
+                TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text("GENIAL"),
+                )
+            ],
+            ),
+        );
+      }
+
+    } catch (e) {
+      print("Error al unirse por link: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al intentar unirse a la liga')));
+      }
+    }
+  }
+  // -------------------------
 
   void _checkIfNewGoogleUser() {
     final user = FirebaseAuth.instance.currentUser;
@@ -208,8 +299,6 @@ class _MapScreenState extends State<MapScreen> {
       // Si el sistema dice que NO tenemos permiso...
       if (!batteryStatus.isGranted) {
         if (mounted) {
-          // ... Mostramos el diálogo Y marcamos que ya hemos preguntado.
-          // Así, si el usuario da permiso pero el sistema no se entera, no molestamos más.
           setState(() {
             _hasAskedBatteryInfo = true;
           });
@@ -241,7 +330,6 @@ class _MapScreenState extends State<MapScreen> {
           );
         }
       } else {
-        // Si ya lo tiene, perfecto, marcamos también para ahorrar comprobaciones
         _hasAskedBatteryInfo = true;
       }
     }
