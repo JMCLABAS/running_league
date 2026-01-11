@@ -4,6 +4,8 @@
 
 Este proyecto demuestra la implementación de un ciclo de vida completo de desarrollo móvil: desde la geolocalización en tiempo real y persistencia local, hasta la lógica de negocio en servidor (Serverless) y estrategias avanzadas de Deep Linking para el crecimiento viral.
 
+🚧 **Estado del Proyecto:** En desarrollo activo (WIP). Próximas actualizaciones incluirán nuevas mecánicas de juego y mejoras en la analítica.
+
 ---
 
 ## 📱 Características Principales
