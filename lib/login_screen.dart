@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'register_screen.dart'; 
-// import 'nickname_screen.dart'; // YA NO HACE FALTA AQUÍ (Lo gestiona el Mapa)
 
+/// Pantalla de autenticación principal.
+/// Gestiona el inicio de sesión mediante credenciales de correo/contraseña
+/// y proveedores federados (Google OAuth).
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -18,7 +20,9 @@ class _LoginScreenState extends State<LoginScreen> {
   
   bool _isLoading = false;
 
-  // --- LOGIN CON EMAIL ---
+  /// Autenticación tradicional mediante Firebase Auth.
+  /// Incluye validación de correo verificado para garantizar la calidad de los usuarios
+  /// antes de permitir el acceso a la plataforma.
   Future<void> _login() async {
     if (_emailController.text.trim().isEmpty || _passwordController.text.trim().isEmpty) {
       _showMessage("Por favor, escribe email y contraseña", color: Colors.orange);
@@ -31,6 +35,7 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text.trim(),
       );
 
+      // Security check: Gatekeeper para emails no verificados
       if (!userCredential.user!.emailVerified) {
         await FirebaseAuth.instance.signOut();
         _showMessage("⛔ Debes verificar tu correo para entrar.", color: Colors.red);
@@ -50,34 +55,38 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // --- LOGIN CON GOOGLE (CORREGIDO) ---
+  /// Inicio de sesión federado con Google.
+  /// Implementa el flujo de OAuth 2.0 intercambiando tokens de Google por credenciales de Firebase.
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
     try {
-      // 1. IMPORTANTE: Forzamos desconexión previa para que SIEMPRE salga el selector de cuentas
+      // UX Decision: Forzamos el cierre de sesión en el plugin de Google antes de iniciar.
+      // Esto garantiza que el selector de cuentas aparezca siempre, permitiendo al usuario
+      // cambiar de cuenta si se equivocó anteriormente, en lugar de auto-loguear silenciosamente.
       await _googleSignIn.signOut(); 
 
-      // 2. Ahora iniciamos el flujo (saldrá la ventanita de elegir cuenta)
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       
       if (googleUser == null) {
+        // El usuario canceló el modal de selección
         setState(() => _isLoading = false);
         return; 
       }
 
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      
+      // Intercambio de tokens
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken, 
         idToken: googleAuth.idToken,
       );
       
-      // 3. Entramos en Firebase
-      // (Quitamos la lógica de isNewUser de aquí porque la hace el main.dart más seguro)
+      // La lógica de creación de perfil (onboarding) está delegada en el AuthWrapper (main.dart)
+      // para mantener la separación de responsabilidades.
       await FirebaseAuth.instance.signInWithCredential(credential);
       
       _showMessage("¡Conectado con Google!", color: Colors.green);
       
-      // Volvemos al Mapa
       if (mounted) {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
@@ -89,7 +98,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // --- RESTO DEL CÓDIGO ---
   void _goToRegister() {
     Navigator.push(
       context,
@@ -97,11 +105,12 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  /// Mapeo de errores de Firebase a mensajes amigables para el usuario final (i18n ready).
   void _handleFirebaseError(FirebaseAuthException e) {
     String msg = "Error desconocido";
     if (e.code == 'user-not-found' || e.code == 'invalid-credential') msg = "Usuario o contraseña incorrectos";
     else if (e.code == 'wrong-password') msg = "Contraseña incorrecta";
-    else if (e.code == 'too-many-requests') msg = "Demasiados intentos.";
+    else if (e.code == 'too-many-requests') msg = "Demasiados intentos. Inténtalo más tarde.";
     _showMessage(msg);
   }
 

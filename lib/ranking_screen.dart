@@ -1,7 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'player_profile_screen.dart'; // Asegúrate de que este archivo existe
+import 'player_profile_screen.dart';
 
+/// Pantalla de Clasificación (Leaderboard).
+///
+/// Responsable de calcular y visualizar el ranking en tiempo real de una liga específica.
+/// Implementa una estrategia de agregación en cliente (Client-side Aggregation) para
+/// calcular los puntajes totales a partir del stream de actividades crudas.
+///
+/// Nota de Arquitectura: Para ligas con miles de usuarios, esta lógica debería
+/// migrarse a Cloud Functions para mantener una colección desnormalizada de 'scores'.
 class RankingScreen extends StatelessWidget {
   final String leagueId;
   final Map<String, dynamic> leagueData;
@@ -14,7 +22,8 @@ class RankingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Lista de UIDs de los participantes
+    // Recuperamos la lista base de participantes para asegurar que todos aparezcan en la tabla,
+    // incluso si tienen 0 puntos (Scoreboard inclusivo).
     final List<dynamic> participants = leagueData['participantes'] ?? [];
 
     return Scaffold(
@@ -24,7 +33,7 @@ class RankingScreen extends StatelessWidget {
         foregroundColor: Colors.white,
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // 1. Escuchamos TODAS las actividades de esta liga en tiempo real
+        // Suscripción reactiva a la colección de actividades filtrada por tenant (leagueId).
         stream: FirebaseFirestore.instance
             .collection('activities')
             .where('leagueId', isEqualTo: leagueId)
@@ -35,21 +44,21 @@ class RankingScreen extends StatelessWidget {
           }
 
           if (snapshot.hasError) {
-            return const Center(child: Text("Error cargando puntuaciones"));
+            return const Center(child: Text("Error de sincronización de datos"));
           }
 
           final activities = snapshot.data?.docs ?? [];
 
-          // 2. AGREGACIÓN DE PUNTOS EN MEMORIA
-          // Mapa: { 'uid_usuario': 1500 puntos, 'otro_uid': 500 puntos }
+          // Motor de Cálculo de Puntuaciones (In-Memory Aggregation)
+          // Complejidad: O(N) donde N es el número de actividades.
           Map<String, int> scores = {};
 
-          // Inicializamos a todos con 0 puntos para que aparezcan aunque no hayan corrido
+          // Paso 1: Inicialización (Zero-filling)
           for (var uid in participants) {
             scores[uid.toString()] = 0;
           }
 
-          // Sumamos los puntos de las actividades
+          // Paso 2: Acumulación (Reduce)
           for (var doc in activities) {
             final data = doc.data() as Map<String, dynamic>;
             final uid = data['userId'];
@@ -58,21 +67,21 @@ class RankingScreen extends StatelessWidget {
             if (scores.containsKey(uid)) {
               scores[uid] = scores[uid]! + points;
             } else {
-              // Si por error hay una actividad de alguien que ya no está en la liga
+              // Manejo de consistencia eventual: Si un usuario sale de la liga pero sus actividades persisten.
               scores[uid] = points;
             }
           }
 
-          // 3. ORDENAR (De mayor a menor)
-          // Convertimos el mapa a una lista para poder ordenarla
+          // Paso 3: Ordenación (Sort)
+          // Orden descendente por valor (puntos).
           List<MapEntry<String, int>> sortedRanking = scores.entries.toList()
-            ..sort((a, b) => b.value.compareTo(a.value)); // b compareTo a = Descendente
+            ..sort((a, b) => b.value.compareTo(a.value)); 
 
           if (sortedRanking.isEmpty) {
-            return const Center(child: Text("No hay participantes todavía."));
+            return const Center(child: Text("Esperando a los primeros corredores..."));
           }
 
-          // 4. CONSTRUIR LA LISTA VISUAL
+          // Renderizado de Lista Optimizada
           return ListView.builder(
             itemCount: sortedRanking.length,
             padding: const EdgeInsets.all(16),
@@ -81,7 +90,8 @@ class RankingScreen extends StatelessWidget {
               final points = sortedRanking[index].value;
               final position = index + 1;
 
-              // Widget especial para cargar el nombre del usuario
+              // Delegamos el renderizado de cada fila a un widget especializado
+              // que maneja la carga asíncrona de los perfiles de usuario.
               return _UserRankingRow(
                 uid: uid,
                 points: points,
@@ -95,7 +105,8 @@ class RankingScreen extends StatelessWidget {
   }
 }
 
-// --- WIDGET AUXILIAR PARA CARGAR EL NOMBRE DE CADA USUARIO ---
+/// Widget de fila de ranking con carga perezosa de metadatos de usuario.
+/// Utiliza un FutureBuilder interno para resolver el nombre y avatar solo cuando es visible.
 class _UserRankingRow extends StatelessWidget {
   final String uid;
   final int points;
@@ -109,22 +120,23 @@ class _UserRankingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Colores para el podio
+    // Lógica de Gamificación Visual (Podio)
     Color? badgeColor;
     double scale = 1.0;
     
     if (position == 1) {
       badgeColor = const Color(0xFFFFD700); // Oro
-      scale = 1.1;
+      scale = 1.05; // Resaltado sutil del líder
     } else if (position == 2) {
       badgeColor = const Color(0xFFC0C0C0); // Plata
     } else if (position == 3) {
       badgeColor = const Color(0xFFCD7F32); // Bronce
     } else {
-      badgeColor = Colors.grey[200]; // Resto
+      badgeColor = Colors.grey[200]; 
     }
 
     return FutureBuilder<DocumentSnapshot>(
+      // Caché implícita de Firestore optimiza estas lecturas repetitivas
       future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
       builder: (context, snapshot) {
         String displayName = "Cargando..."; 
@@ -132,6 +144,7 @@ class _UserRankingRow extends StatelessWidget {
 
         if (snapshot.hasData && snapshot.data!.exists) {
           final data = snapshot.data!.data() as Map<String, dynamic>?;
+          // Estrategia de Fallback para el nombre visual
           displayName = data?['displayName'] ?? data?['name'] ?? data?['nickname'] ?? "Corredor Desconocido";
           avatarUrl = data?['photoURL'];
         } else if (snapshot.connectionState == ConnectionState.done) {
@@ -148,7 +161,7 @@ class _UserRankingRow extends StatelessWidget {
               side: position == 1 ? const BorderSide(color: Color(0xFFFFD700), width: 2) : BorderSide.none
             ),
             child: ListTile(
-              // --- NAVEGACIÓN AL PERFIL AL TOCAR ---
+              // Navegación Drill-down al perfil detallado
               onTap: () {
                 Navigator.push(
                   context,
@@ -160,7 +173,6 @@ class _UserRankingRow extends StatelessWidget {
                   ),
                 );
               },
-              // -------------------------------------
               leading: CircleAvatar(
                 backgroundColor: badgeColor,
                 foregroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,

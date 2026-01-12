@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart'; 
-import 'package:share_plus/share_plus.dart'; // <--- IMPORTANTE: Necesario para compartir
+import 'package:share_plus/share_plus.dart'; 
 import 'create_league_screen.dart'; 
 import 'ranking_screen.dart';
 
+/// Pantalla principal de gestión de ligas (Hub).
+///
+/// Actúa como el panel de control donde el usuario visualiza sus suscripciones activas
+/// en tiempo real. Implementa la lógica de entrada (unirse/crear) y la navegación
+/// hacia los detalles de clasificación (RankingScreen).
 class LeaguesScreen extends StatefulWidget {
   const LeaguesScreen({super.key});
 
@@ -16,7 +21,8 @@ class LeaguesScreen extends StatefulWidget {
 class _LeaguesScreenState extends State<LeaguesScreen> {
   final user = FirebaseAuth.instance.currentUser;
 
-  // Función para unirse a una liga existente por ID
+  /// Muestra un modal para la entrada manual de códigos de liga.
+  /// Alternativa manual al sistema de Deep Linking.
   void _joinLeagueDialog() {
     final TextEditingController idController = TextEditingController();
     
@@ -51,6 +57,8 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
     );
   }
 
+  /// Ejecuta la transacción de unión a una liga en Firestore.
+  /// Utiliza `arrayUnion` para garantizar atomicidad y evitar duplicados en la lista de participantes.
   Future<void> _joinLeague(String leagueId) async {
     try {
       final leagueRef = FirebaseFirestore.instance.collection('leagues').doc(leagueId);
@@ -61,7 +69,7 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
         return;
       }
 
-      // Añadir mi ID al array de participantes
+      // Actualización atómica del array de participantes
       await leagueRef.update({
         'participantes': FieldValue.arrayUnion([user!.uid])
       });
@@ -72,18 +80,19 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
     }
   }
 
-  // --- NUEVA FUNCIÓN PARA COMPARTIR ---
-  // --- FUNCIÓN PARA COMPARTIR (FORMATO HTTP) ---
+  /// Genera y comparte el enlace de invitación.
+  /// 
+  /// Construye un Deep Link compatible con la configuración de Android App Links
+  /// (definida en el Manifest y assetlinks.json) para permitir la apertura directa de la App.
   void _compartirLiga(String nombreLiga, String leagueId) {
-    // Usamos un dominio "falso" pero con http para que WhatsApp lo ponga azul
+    // URL verificada en Firebase Hosting para intercepción de intentos en Android
     final String link = "https://running-league-app.web.app/unirse?id=$leagueId";
     
     Share.share(
       "¡Únete a mi liga '$nombreLiga'! 🏃💨\n\n"
       "1. Instala la App primero.\n"
       "2. Pincha este enlace para entrar:\n$link"
-
-      "Tambien puedes unirte manualmente pulsando Unirse y pegando este código: $leagueId"
+      "\n\nTambien puedes unirte manualmente pulsando Unirse y pegando este código: $leagueId"
     );
   }
 
@@ -96,6 +105,8 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
         title: const Text("Mis Ligas"),
         centerTitle: true,
       ),
+      // Patrón Observer: StreamBuilder mantiene la UI sincronizada con la DB en tiempo real.
+      // Filtra las ligas donde el usuario actual está incluido en el array 'participantes'.
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('leagues')
@@ -144,6 +155,7 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
                 margin: const EdgeInsets.only(bottom: 16),
                 clipBehavior: Clip.antiAlias,
                 child: InkWell(
+                  // Navegación contextual al Dashboard de la liga específica
                   onTap: () {
                     Navigator.push(
                       context,
@@ -159,7 +171,7 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: Row(
                       children: [
-                        // 1. AVATAR (Izquierda)
+                        // Avatar (Inicial de la liga)
                         CircleAvatar(
                           radius: 25,
                           backgroundColor: Colors.blueAccent,
@@ -171,7 +183,7 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
                         
                         const SizedBox(width: 16), 
 
-                        // 2. TEXTOS (Centro - Flexible)
+                        // Metadatos de la liga
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -190,11 +202,10 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
                           ),
                         ),
 
-                        // 3. BOTONES DE ACCIÓN (Derecha)
+                        // Acciones rápidas (Copiar ID / Compartir)
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // BOTÓN COPIAR ID
                             IconButton(
                                 icon: const Icon(Icons.copy, color: Colors.blueGrey, size: 20),
                                 tooltip: "Copiar ID",
@@ -208,7 +219,6 @@ class _LeaguesScreenState extends State<LeaguesScreen> {
                                 },
                             ),
                             
-                            // --- NUEVO BOTÓN COMPARTIR ---
                             IconButton(
                                 icon: const Icon(Icons.share, color: Colors.green, size: 20),
                                 tooltip: "Invitar Amigos",

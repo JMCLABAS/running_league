@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart'; 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'db_helper.dart';
-import 'login_screen.dart'; 
-import 'package:google_sign_in/google_sign_in.dart';
 
+/// Pantalla de Historial de Actividades.
+/// Muestra un listado cronológico de las carreras registradas localmente por el usuario.
+/// Permite visualizar métricas clave y gestionar (eliminar) registros.
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
 
@@ -21,6 +22,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _refreshRuns();
   }
 
+  /// Recarga el historial de carreras desde SQLite.
+  /// Aplica un filtro de seguridad basado en el UID del usuario autenticado actualmente.
   void _refreshRuns() {
     setState(() {
       final user = FirebaseAuth.instance.currentUser;
@@ -33,40 +36,31 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
   }
 
-  // --- LOGOUT ELIMINADO DE LA INTERFAZ PERO MANTENIDO EN EL CÓDIGO POR SI ACASO ---
-  Future<void> _signOut() async {
-    await FirebaseAuth.instance.signOut();
-    await GoogleSignIn().signOut();
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-      );
-    }
-  }
-
+  /// Muestra un diálogo de confirmación antes de la eliminación destructiva de un registro.
   void _confirmDelete(int id) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text("¿Eliminar carrera?"),
-          content: const Text("¿Seguro que quieres eliminar esta carrera?"),
+          content: const Text("Esta acción no se puede deshacer. ¿Continuar?"),
           actions: [
             TextButton(
-              child: const Text("No, Cancelar"),
-              onPressed: () {
-                Navigator.of(context).pop(); 
-              },
+              child: const Text("Cancelar"),
+              onPressed: () => Navigator.of(context).pop(),
             ),
             TextButton(
-              child: const Text("Sí, Eliminar", style: TextStyle(color: Colors.red)),
+              child: const Text("Eliminar", style: TextStyle(color: Colors.red)),
               onPressed: () async {
                 await DBHelper().deleteRun(id);
                 if (context.mounted) Navigator.of(context).pop();
+                
+                // Actualizamos la UI inmediatamente
                 _refreshRuns();
+                
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("🗑️ Carrera eliminada")),
+                    const SnackBar(content: Text("🗑️ Carrera eliminada del historial local")),
                   );
                 }
               },
@@ -87,17 +81,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
         title: const Text('Mi Historial 🏃‍♂️'),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
-        // --- AQUÍ HE ELIMINADO LA SECCIÓN ACTIONS ---
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _runHistory,
         builder: (context, snapshot) {
+          // Estado de Carga
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+          
+          // Gestión de Errores
           if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}"));
+            return Center(child: Text("Error al cargar datos: ${snapshot.error}"));
           }
+          
+          // Estado Vacío (Empty State)
           if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return Center(
               child: Column(
@@ -132,7 +130,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
+  /// Construye la tarjeta visual para cada item del historial.
   Widget _buildRunCard(Map<String, dynamic> run) {
+    // Formateo de fecha para UX amigable
     DateTime fecha = DateTime.parse(run['date']);
     String fechaBonita = DateFormat("d MMM yyyy - HH:mm", "es").format(fecha);
 
@@ -146,6 +146,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Cabecera: Fecha y Acción de Borrar
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween, 
               children: [
@@ -158,14 +159,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                  onPressed: () {
-                    _confirmDelete(run['id']);
-                  },
+                  onPressed: () => _confirmDelete(run['id']),
                 ),
               ],
             ),
             const Divider(),
             
+            // Métricas Principales (KPIs)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -177,6 +177,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             
             const SizedBox(height: 15),
             
+            // Sección de Récords / Análisis
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -197,6 +198,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
+  // Componentes de UI reutilizables
+  
   Widget _datoPrincipal(String valor, String etiqueta) {
     return Column(
       children: [

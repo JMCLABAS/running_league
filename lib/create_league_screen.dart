@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+/// Pantalla de creación de nuevas ligas competitivas.
+///
+/// Gestiona la inicialización del documento en Firestore, la asignación de
+/// permisos de administrador y la configuración de las reglas de gamificación.
 class CreateLeagueScreen extends StatefulWidget {
   const CreateLeagueScreen({super.key});
 
@@ -13,47 +17,49 @@ class _CreateLeagueScreenState extends State<CreateLeagueScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   
-  // Valores por defecto
-  String _selectedSystem = 'FIJO'; // Opciones: 'FIJO', 'HORQUILLAS'
-  int _targetDaysPerWeek = 3;      // Slider de 1 a 7
+  // Estado de la configuración de la liga
+  String _selectedSystem = 'FIJO'; 
+  int _targetDaysPerWeek = 3;      
   bool _isLoading = false;
 
-  // Función para guardar en Firestore
+  /// Valida la entrada del usuario y persiste la nueva configuración en Firestore.
+  /// Asigna automáticamente al usuario actual como administrador y primer participante.
   Future<void> _createLeague() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
-      // 1. Obtener el usuario actual (necesitamos su ID)
+      // Fail-safe: Se requiere autenticación para establecer la propiedad (adminId).
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
         throw Exception("Usuario no autenticado");
       }
 
-      // 2. Preparar los datos (Estructura definida en nuestro chat)
+      // Construcción del payload siguiendo el esquema de la colección 'leagues'.
       final leagueData = {
         "nombre": _nameController.text.trim(),
         "adminId": user.uid,
-        "participantes": [user.uid], // El creador es el primer participante
+        "participantes": [user.uid], // El creador se une automáticamente
         "fechaCreacion": FieldValue.serverTimestamp(),
         
-        // AQUÍ ESTÁ LA CONFIGURACIÓN DE PUNTOS
+        // Configuración del Motor de Gamificación
+        // Estos parámetros serán consumidos por las Cloud Functions para el cálculo de puntajes semanales.
         "configuracionPuntos": {
-          "modo": _selectedSystem, // "FIJO" o "HORQUILLAS"
+          "modo": _selectedSystem, 
           "diasObjetivoSemana": _targetDaysPerWeek,
-          "bonusDiasObjetivo": 100, // Valor fijo por defecto o editable si quieres
+          "bonusDiasObjetivo": 100, 
         }
       };
 
-      // 3. Guardar en la colección 'leagues'
+      // Escritura en BBDD
       await FirebaseFirestore.instance.collection('leagues').add(leagueData);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('¡Liga creada con éxito! 🏃‍♂️💨')),
         );
-        Navigator.pop(context); // Volver atrás
+        Navigator.pop(context); 
       }
     } catch (e) {
       if (mounted) {
@@ -76,7 +82,7 @@ class _CreateLeagueScreenState extends State<CreateLeagueScreen> {
           key: _formKey,
           child: ListView(
             children: [
-              // --- CAMPO NOMBRE ---
+              // --- Sección de Identidad ---
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(
@@ -89,7 +95,7 @@ class _CreateLeagueScreenState extends State<CreateLeagueScreen> {
               ),
               const SizedBox(height: 20),
 
-              // --- SELECTOR DE SISTEMA DE PUNTUACIÓN ---
+              // --- Reglas de Puntuación ---
               const Text("Sistema de Puntuación",
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 10),
@@ -118,7 +124,7 @@ class _CreateLeagueScreenState extends State<CreateLeagueScreen> {
               ),
               const SizedBox(height: 20),
 
-              // --- SLIDER DE DÍAS OBJETIVO ---
+              // --- Configuración de Engagement (Frecuencia) ---
               const Text("Objetivo semanal de salidas",
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const Text("¿Cuántos días a la semana deben correr para el bonus?"),
@@ -141,7 +147,7 @@ class _CreateLeagueScreenState extends State<CreateLeagueScreen> {
               
               const SizedBox(height: 30),
 
-              // --- BOTÓN DE GUARDAR ---
+              // --- Acciones ---
               SizedBox(
                 height: 50,
                 child: ElevatedButton(

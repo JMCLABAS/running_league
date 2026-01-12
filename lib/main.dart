@@ -8,12 +8,11 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // <--- AÑADIDO (Necesario para unirse a la liga)
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:permission_handler/permission_handler.dart'; 
 import 'package:app_links/app_links.dart'; 
 import 'package:share_plus/share_plus.dart'; 
 
-// --- IMPORTS DE PANTALLAS ---
 import 'run_summary_screen.dart';
 import 'leagues_screen.dart'; 
 import 'nickname_screen.dart';
@@ -21,17 +20,21 @@ import 'db_helper.dart';
 import 'history_screen.dart';
 import 'login_screen.dart'; 
 import 'settings_screen.dart';
-
-// --- IMPORT DE SERVICIOS ---
 import 'running_service.dart'; 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Inicialización de servicios core antes de levantar la UI
   await initializeDateFormatting('es', null); 
   await Firebase.initializeApp(); 
+  
   runApp(const RunningLeagueApp());
 }
 
+/// Widget Raíz de la aplicación.
+/// Implementa un "Auth Gate" mediante StreamBuilder para gestionar el enrutamiento
+/// dinámico basado en el estado de autenticación de Firebase.
 class RunningLeagueApp extends StatelessWidget {
   const RunningLeagueApp({super.key});
 
@@ -53,6 +56,7 @@ class RunningLeagueApp extends StatelessWidget {
           
           if (snapshot.hasData) {
             final user = snapshot.data!;
+            // Security check: Gatekeeper para emails no verificados
             if (user.emailVerified) {
                return const MapScreen(); 
             }
@@ -73,44 +77,47 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
+  // --- Controladores de UI e Infraestructura ---
   final MapController _mapController = MapController();
   final FlutterTts _flutterTts = FlutterTts();
-  
-  // --- VARIABLES DEEP LINKS ---
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
-  // ---------------------------
 
+  // --- Estado de la Sesión ---
   bool _voiceEnabled = true;
   bool _hasAskedBatteryInfo = false;
+  bool _isTracking = false;
 
+  // --- Telemetría y Métricas en Tiempo Real ---
   final List<LatLng> _routePoints = [];
   LatLng? _currentPosition;
   double _totalDistance = 0.0;
   final Stopwatch _stopwatch = Stopwatch();
   Duration _duration = Duration.zero;
   
+  // Historial de puntos para cálculo de ventana deslizante (Rolling Window)
   final List<({double dist, Duration time})> _history = []; 
   
+  // Métricas derivadas
   Duration? _bestRolling1k;      
   String _bestRolling1kRange = ""; 
-  
   List<Duration> _kmSplits = []; 
   Duration _lastSplitTime = Duration.zero; 
 
+  // --- Geolocation Streams ---
   StreamSubscription<Position>? _positionStream;
   Timer? _timer;
   final Distance _distanceCalculator = const Distance();
-  bool _isTracking = false;
 
   @override
   void initState() {
     super.initState();
     _initTts();
     
-    // Inicializar Deep Links
+    // Configuración del listener para Deep Links (Cold Start & Background)
     initDeepLinks();
 
+    // Verificación de Onboarding post-renderizado
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkIfNewGoogleUser();
     });
@@ -118,46 +125,48 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
-    _linkSubscription?.cancel(); // Cancelar escucha de links
+    _linkSubscription?.cancel();
     _positionStream?.cancel();
     _timer?.cancel();
     super.dispose();
   }
 
-  // --- LÓGICA DEEP LINKS ---
+  /// Inicializa la escucha de enlaces profundos (App Links/Universal Links).
+  /// Permite la navegación directa a una liga específica desde una URL externa.
   Future<void> initDeepLinks() async {
     _appLinks = AppLinks();
 
-    // Escuchar enlaces entrantes (incluso si la app estaba cerrada)
     _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
       procesarEnlace(uri);
     });
   }
 
+  /// Parsea la URI entrante y extrae los parámetros de navegación.
+  /// Soporta tanto el esquema web (HTTPS) como esquemas personalizados legacy.
   void procesarEnlace(Uri uri) {
-    // El enlace ahora es: http://running-league.app/unirse?id=CODIGO
-    
-    // Verificamos si el host coincide
-if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {      final leagueId = uri.queryParameters['id'];
+    // Validación de Host y Path para evitar intercepciones no deseadas
+    if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {      
+      final leagueId = uri.queryParameters['id'];
       
       if (leagueId != null) {
-        print("🔗 Enlace HTTP detectado para liga: $leagueId");
+        debugPrint("🔗 Deep Link detectado: Procesando unión a liga $leagueId");
         _unirseAutomaticamente(leagueId);
       }
     }
-    // Mantenemos compatibilidad con el antiguo por si acaso
+    // Fallback para esquema custom
     else if (uri.scheme == 'runningleague' && uri.host == 'unirse') {
       final leagueId = uri.queryParameters['id'];
       if (leagueId != null) _unirseAutomaticamente(leagueId);
     }
   }
 
+  /// Ejecuta la lógica de negocio para unir al usuario a una liga detectada.
+  /// Realiza una escritura atómica en Firestore usando `arrayUnion`.
   Future<void> _unirseAutomaticamente(String leagueId) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return; 
 
     try {
-      // 1. Verificar si la liga existe
       final ligaDoc = await FirebaseFirestore.instance.collection('leagues').doc(leagueId).get();
       
       if (!ligaDoc.exists) {
@@ -167,12 +176,10 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
         return;
       }
 
-      // 2. Unirse (Añadir UID al array)
       await FirebaseFirestore.instance.collection('leagues').doc(leagueId).update({
         'participantes': FieldValue.arrayUnion([user.uid])
       });
       
-      // 3. Avisar al usuario
       if (mounted) {
         showDialog(
             context: context,
@@ -190,14 +197,15 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
       }
 
     } catch (e) {
-      print("Error al unirse por link: $e");
+      debugPrint("Error crítico en Deep Link Handler: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al intentar unirse a la liga')));
       }
     }
   }
-  // -------------------------
 
+  /// Detecta si el usuario proviene de un registro reciente con Google OAuth
+  /// y carece de nickname configurado, redirigiendo al flujo de Onboarding.
   void _checkIfNewGoogleUser() {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null && user.metadata.creationTime != null) {
@@ -213,6 +221,7 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
         }
       }
 
+      // Heurística: Si el nombre actual coincide con el de Google, asumimos que no ha personalizado su perfil.
       bool nameIsDefault = user.displayName == googleName || user.displayName == null || user.displayName!.isEmpty;
 
       if (isGoogleUser && isRecent && nameIsDefault) {
@@ -231,10 +240,12 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
     await _flutterTts.setPitch(1.0);
   }
 
+  /// Wrapper para el motor de síntesis de voz.
+  /// Incluye validación de configuración de usuario (_voiceEnabled) antes de emitir audio.
   Future<void> _speak(String text) async {
     if (!_voiceEnabled) return; 
 
-    await _flutterTts.stop(); 
+    await _flutterTts.stop(); // Interrupción de cola anterior para prioridad inmediata
     if (text.isNotEmpty) {
       await _flutterTts.speak(text);
     }
@@ -244,9 +255,12 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
     if (distanciaEnMetros <= 0) return "0:00";
     double distanciaEnKm = distanciaEnMetros / 1000;
     double minutosTotales = duracion.inSeconds / 60;
+    
+    // Cálculo de pace (min/km)
     double ritmoDecimal = minutosTotales / distanciaEnKm;
     int minutosRitmo = ritmoDecimal.floor();
     int segundosRitmo = ((ritmoDecimal - minutosRitmo) * 60).round();
+    
     String segundosString = segundosRitmo.toString().padLeft(2, '0');
     if (minutosRitmo > 59) return "--:--";
     return "$minutosRitmo:$segundosString";
@@ -269,8 +283,11 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
     return texto;
   }
 
+  /// Inicia el servicio de rastreo GPS en primer plano.
+  /// Incluye gestión de permisos críticos y configuración de notificaciones persistentes
+  /// para garantizar que el sistema operativo no elimine el proceso (Doze Mode).
   Future<void> _startTracking() async {
-    // 1. Verificar servicios de ubicación
+    // Verificación de disponibilidad de hardware GPS
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
        if (mounted) {
@@ -281,22 +298,19 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
        return;
     }
 
-    // 2. Verificar permisos de ubicación
+    // Gestión de permisos en tiempo de ejecución
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return;
     }
 
-    // -------------------------------------------------------------
-    // 3. COMPROBACIÓN DE BATERÍA (SOLO UNA VEZ POR SESIÓN)
-    // -------------------------------------------------------------
-    
-    // Solo preguntamos si NO hemos preguntado antes en esta sesión
+    // --- Optimización de Batería ---
+    // Solicitamos exención de optimización de batería para mantener el Wake Lock activo
+    // durante sesiones largas con pantalla apagada.
     if (!_hasAskedBatteryInfo) {
       var batteryStatus = await Permission.ignoreBatteryOptimizations.status;
       
-      // Si el sistema dice que NO tenemos permiso...
       if (!batteryStatus.isGranted) {
         if (mounted) {
           setState(() {
@@ -308,10 +322,9 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
             builder: (context) => AlertDialog(
               title: const Text("⚠️ Ajuste Importante"),
               content: const Text(
-                "Para grabar la ruta con la pantalla apagada, el móvil no debe restringir la batería.\n\n"
+                "Para grabar la ruta con la pantalla apagada, el proceso requiere ejecutarse en segundo plano sin restricciones.\n\n"
                 "1. Toca 'Abrir Ajustes'.\n"
-                "2. Busca 'Ahorro de batería' o 'Batería'.\n"
-                "3. Selecciona 'Sin restricciones' o 'No optimizar'."
+                "2. Selecciona 'Sin restricciones' o 'No optimizar' en la configuración de batería."
               ),
               actions: [
                 TextButton(
@@ -337,6 +350,7 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
 
     _speak("Iniciando carrera.");
 
+    // Reset de estado para nueva sesión
     setState(() {
       _isTracking = true;
       _routePoints.clear();
@@ -358,18 +372,20 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
       });
     });
 
+    // Configuración específica de plataforma para High Accuracy
     LocationSettings locationSettings;
     if (defaultTargetPlatform == TargetPlatform.android) {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        distanceFilter: 3, // Filtro de ruido para pequeños movimientos
         forceLocationManager: true,
         intervalDuration: const Duration(seconds: 1),
+        // Configuración de Foreground Service Notification
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: "Running League",
-          notificationText: "Grabando ruta...",
+          notificationText: "Grabando ruta en segundo plano...",
           notificationIcon: AndroidResource(name: 'ic_launcher'),
-          enableWakeLock: true,
+          enableWakeLock: true, // Crucial para CPU uptime
         ),
       );
     } else {
@@ -393,8 +409,11 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
         _routePoints.add(newPoint);
         _history.add((dist: _totalDistance, time: _stopwatch.elapsed));
 
+        // Algoritmo de Ventana Deslizante (Rolling Window) para "Mejor Km"
+        // Busca el tramo de 1000m más rápido en cualquier punto de la serie temporal.
         if (_totalDistance >= 1000) {
             double targetDist = _totalDistance - 1000;
+            // Búsqueda inversa optimizada
             for (int i = _history.length - 1; i >= 0; i--) {
                 var point = _history[i];
                 if (point.dist <= targetDist) {
@@ -410,6 +429,7 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
             }
         }
 
+        // Gestión de Splits (Parciales por Km)
         int currentKmIndex = _totalDistance ~/ 1000;
         if (currentKmIndex > _kmSplits.length) {
           Duration tiempoDeEsteKm = _stopwatch.elapsed - _lastSplitTime;
@@ -437,6 +457,7 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
       _isTracking = false;
     });
 
+    // Cálculo post-entrenamiento del mejor Split estático
     Duration? bestSplit;
     String bestSplitRange = ""; 
 
@@ -447,6 +468,7 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
       bestSplitRange = "Km ${index + 1}";
     }
 
+    // Modal de Resumen preliminar antes de persistencia
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -520,7 +542,7 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
                    return;
                 }
 
-                // 1. Guardar en BD Local
+                // 1. Persistencia Local (SQLite)
                 Map<String, dynamic> carreraParaGuardar = {
                   'userId': user.uid, 
                   'date': DateTime.now().toIso8601String(),
@@ -535,7 +557,8 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
 
                 await DBHelper().insertRun(carreraParaGuardar);
 
-                // 2. Guardar en Ligas y Obtener Resultados
+                // 2. Sincronización Cloud (Firestore)
+                // Propagamos la actividad a todas las ligas activas del usuario
                 List<Map<String, dynamic>> resultadosLigas = [];
                 double finalDistKm = _totalDistance / 1000;
                 Duration finalDuration = _duration; 
@@ -551,10 +574,10 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
                   );
 
                 } catch (e) {
-                  print("Error al sincronizar con ligas: $e");
+                  debugPrint("Error de sincronización con ligas: $e");
                 }
 
-                // 3. Limpiar y Navegar
+                // 3. Limpieza y Navegación a Resumen
                 _resetCarrera();
                 
                 if (context.mounted) {
@@ -734,6 +757,7 @@ if (uri.host == 'running-league-app.web.app' && uri.path.contains('unirse')) {  
             ],
           ),
 
+          // Dashboard Flotante (HUD)
           Positioned(
             top: 15,
             left: 20,

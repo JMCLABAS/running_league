@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 
+/// Pantalla de Recibo/Resumen Post-Entrenamiento.
+///
+/// Su objetivo es cerrar el ciclo de feedback (Gamification Loop) mostrando
+/// inmediatamente la recompensa obtenida y las métricas físicas.
+/// Actúa como confirmación visual de que los datos se han persistido correctamente.
 class RunSummaryScreen extends StatelessWidget {
   final double distanceKm;
   final Duration duration;
+  // Datos pre-calculados por el RunningService antes de la navegación
   final List<Map<String, dynamic>> leagueResults;
 
   const RunSummaryScreen({
@@ -12,6 +18,7 @@ class RunSummaryScreen extends StatelessWidget {
     required this.leagueResults,
   });
 
+  /// Utilidad de formateo (HH:MM:SS) para consistencia en la presentación de métricas.
   String _formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     return "${twoDigits(d.inHours)}:${twoDigits(d.inMinutes.remainder(60))}:${twoDigits(d.inSeconds.remainder(60))}";
@@ -19,7 +26,7 @@ class RunSummaryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Calculamos el total de puntos ganados hoy sumando todas las ligas
+    // Agregación de puntos totales para feedback inmediato (Reward Header)
     int totalPointsToday = 0;
     for (var res in leagueResults) {
       totalPointsToday += (res['points'] as int);
@@ -31,7 +38,8 @@ class RunSummaryScreen extends StatelessWidget {
         child: Column(
           children: [
             const SizedBox(height: 40),
-            // --- HEADER DE FELICITACIÓN ---
+            
+            // Sección de Refuerzo Positivo (Gamification Reward)
             const Icon(Icons.emoji_events, size: 80, color: Colors.yellowAccent),
             const SizedBox(height: 10),
             const Text(
@@ -45,7 +53,7 @@ class RunSummaryScreen extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             
-            // --- RESUMEN FÍSICO ---
+            // KPIs de la sesión (Métricas Físicas)
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -57,7 +65,7 @@ class RunSummaryScreen extends StatelessWidget {
             
             const SizedBox(height: 30),
             
-            // --- LISTA DE PUNTOS POR LIGA ---
+            // Contenedor principal de detalles (Patrón visual "Bottom Sheet" persistente)
             Expanded(
               child: Container(
                 width: double.infinity,
@@ -79,6 +87,7 @@ class RunSummaryScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       
+                      // Manejo de Estado Vacío (Empty State) para UX
                       if (leagueResults.isEmpty)
                         const Center(
                           child: Padding(
@@ -98,6 +107,7 @@ class RunSummaryScreen extends StatelessWidget {
                               elevation: 2,
                               margin: const EdgeInsets.only(bottom: 12),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                              // UI Tweak: Eliminamos los bordes por defecto del ExpansionTile para un look más limpio
                               child: Theme(
                                 data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                                 child: ExpansionTile(
@@ -120,6 +130,7 @@ class RunSummaryScreen extends StatelessWidget {
                                       style: TextStyle(color: Colors.green[800], fontWeight: FontWeight.bold),
                                     ),
                                   ),
+                                  // Desglose de la lógica de puntuación (Auditoría para el usuario)
                                   children: breakdown.map((reason) => ListTile(
                                     dense: true,
                                     leading: const Icon(Icons.add_circle_outline, size: 16, color: Colors.green),
@@ -133,13 +144,14 @@ class RunSummaryScreen extends StatelessWidget {
                       ),
                       
                       const SizedBox(height: 10),
-                      // BOTÓN DE CONTINUAR
+                      
+                      // Navegación de retorno al Hub principal
                       SizedBox(
                         width: double.infinity,
                         height: 55,
                         child: ElevatedButton(
                           onPressed: () {
-                            Navigator.pop(context); // Cierra esta pantalla y vuelve al mapa
+                            Navigator.pop(context); 
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blueAccent,
@@ -161,6 +173,7 @@ class RunSummaryScreen extends StatelessWidget {
     );
   }
 
+  /// Componente reutilizable para métricas de cabecera.
   Widget _statBadge(String value, String label) {
     return Column(
       children: [

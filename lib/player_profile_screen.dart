@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
+/// Pantalla de perfil público de un corredor.
+/// Muestra estadísticas agregadas (distancia total, ritmo medio) y el historial
+/// de actividades recientes del usuario seleccionado.
 class PlayerProfileScreen extends StatelessWidget {
   final String userId;
-  final String userName; // Pasamos el nombre para mostrarlo mientras carga
+  final String userName; // Nombre pasado por parámetro para visualización inmediata (Optimistic UI)
 
   const PlayerProfileScreen({
     super.key,
@@ -21,12 +24,15 @@ class PlayerProfileScreen extends StatelessWidget {
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
       ),
+      // FutureBuilder para cargar los datos del perfil de forma asíncrona
       body: FutureBuilder<QuerySnapshot>(
-        // Buscamos TODAS las actividades de este usuario (en cualquier liga)
+        // Recuperamos el historial completo de actividades del usuario para calcular los totales.
+        // Nota: En una aplicación a gran escala, sería recomendable mantener contadores
+        // agregados en el documento del usuario para evitar leer toda la colección 'activities'.
         future: FirebaseFirestore.instance
             .collection('activities')
             .where('userId', isEqualTo: userId)
-            .get(), // Traemos todas para calcular totales
+            .get(), 
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -36,15 +42,15 @@ class PlayerProfileScreen extends StatelessWidget {
             return _buildEmptyProfile();
           }
 
-          // --- CÁLCULO DE ESTADÍSTICAS ---
+          // Procesamiento de datos en el cliente
           final docs = snapshot.data!.docs;
           
-          // Ordenamos por fecha (de más reciente a más antigua)
-          // Lo hacemos aquí en Dart para evitar crear índices complejos en Firestore ahora mismo
+          // Ordenación en memoria por fecha descendente.
+          // Esto evita la necesidad de un índice compuesto en Firestore para este prototipo.
           docs.sort((a, b) {
             Timestamp tA = a['fecha'];
             Timestamp tB = b['fecha'];
-            return tB.compareTo(tA); // Descendente
+            return tB.compareTo(tA); 
           });
 
           double totalKm = 0;
@@ -56,7 +62,7 @@ class PlayerProfileScreen extends StatelessWidget {
             totalSeconds += (doc['tiempoSegundos'] as num).toDouble();
           }
 
-          // Ritmo medio histórico (min/km)
+          // Cálculo del ritmo medio histórico (min/km)
           String avgPace = "0:00";
           if (totalKm > 0) {
             double paceDecimal = (totalSeconds / 60) / totalKm;
@@ -69,7 +75,7 @@ class PlayerProfileScreen extends StatelessWidget {
             child: Column(
               children: [
                 const SizedBox(height: 20),
-                // --- CABECERA ---
+                // Avatar y Nombre del Usuario
                 CircleAvatar(
                   radius: 50,
                   backgroundColor: Colors.blueAccent,
@@ -90,7 +96,7 @@ class PlayerProfileScreen extends StatelessWidget {
                 
                 const SizedBox(height: 20),
 
-                // --- TARJETAS DE ESTADÍSTICAS ---
+                // Sección de Estadísticas Clave (KPIs)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   child: Row(
@@ -106,7 +112,7 @@ class PlayerProfileScreen extends StatelessWidget {
 
                 const SizedBox(height: 30),
                 
-                // --- LISTA DE CARRERAS RECIENTES ---
+                // Historial de Actividades Recientes
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(20),
@@ -126,9 +132,9 @@ class PlayerProfileScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       ListView.separated(
-                        shrinkWrap: true, // Importante dentro de SingleChildScrollView
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: docs.length > 10 ? 10 : docs.length, // Mostrar solo las ultimas 10
+                        shrinkWrap: true, // Necesario para que el ListView funcione dentro de un SingleChildScrollView
+                        physics: const NeverScrollableScrollPhysics(), // Desactiva el scroll propio del ListView
+                        itemCount: docs.length > 10 ? 10 : docs.length, // Limitamos a las últimas 10 actividades
                         separatorBuilder: (_, __) => const Divider(),
                         itemBuilder: (context, index) {
                           final data = docs[index].data() as Map<String, dynamic>;
@@ -170,6 +176,7 @@ class PlayerProfileScreen extends StatelessWidget {
     );
   }
 
+  /// Construye una vista para perfiles sin actividad registrada.
   Widget _buildEmptyProfile() {
     return Center(
       child: Column(
@@ -190,6 +197,7 @@ class PlayerProfileScreen extends StatelessWidget {
   }
 }
 
+/// Widget interno para mostrar una tarjeta de estadística individual.
 class _StatCard extends StatelessWidget {
   final String title;
   final String value;

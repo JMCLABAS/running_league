@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; 
 
+/// Pantalla de Configuración y Perfil.
+///
+/// Centraliza la gestión de preferencias locales (persistencia de estado de UI)
+/// y la administración de la cuenta de usuario (actualización de identidad y cierre de sesión).
 class SettingsScreen extends StatefulWidget {
   final bool currentVoiceEnabled;
 
@@ -22,10 +26,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    // Inicialización del estado local con los parámetros inyectados
     _voiceEnabled = widget.currentVoiceEnabled;
     _nicknameController.text = user?.displayName ?? "";
   }
 
+  /// Ejecuta una actualización de identidad en dos fases (Dual-Write).
+  /// Es crítico mantener sincronizados el perfil de Auth (Sesión) y el documento
+  /// de Firestore (Público) para garantizar la consistencia en los Rankings.
   Future<void> _updateNickname() async {
     String newName = _nicknameController.text.trim();
 
@@ -39,13 +47,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isUpdatingName = true);
 
     try {
-      if (user == null) throw Exception("No hay usuario logueado");
+      if (user == null) throw Exception("Error de sesión: Usuario no autenticado");
 
-      // 1. ACTUALIZAR EN AUTH
+      // Fase 1: Actualización de metadatos de sesión (Auth)
       await user!.updateDisplayName(newName);
       await user!.reload(); 
       
-      // 2. ACTUALIZAR EN FIRESTORE
+      // Fase 2: Propagación al modelo de datos público (Firestore)
+      // Utilizamos SetOptions(merge: true) para operaciones idempotentes.
       await FirebaseFirestore.instance.collection('users').doc(user!.uid).set({
         'displayName': newName,
         'email': user!.email,
@@ -68,20 +77,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// Retorna el control a la pantalla anterior pasando el estado modificado.
+  /// Esto permite actualizar la configuración en el 'MapScreen' sin necesidad de un gestor de estado global.
   void _goBack() {
     Navigator.pop(context, _voiceEnabled);
   }
 
-  // --- FUNCIÓN REAL DE CERRAR SESIÓN ---
+  /// Cierre de sesión seguro.
+  /// Limpia el stack de navegación (`popUntil`) para prevenir que el usuario
+  /// pueda regresar a pantallas protegidas mediante el botón "Atrás" del sistema.
   Future<void> _signOut() async {
     await FirebaseAuth.instance.signOut();
     if (mounted) {
-      // Volver a la primera pantalla (que será Login)
       Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
-  // --- NUEVA FUNCIÓN: DIÁLOGO DE CONFIRMACIÓN ---
+  /// Patrón de confirmación destructiva para evitar salidas accidentales (UX).
   void _confirmSignOut() {
     showDialog(
       context: context,
@@ -90,18 +102,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: const Text("¿Cerrar Sesión?"),
           content: const Text("¿Seguro que quieres cerrar sesión?"),
           actions: [
-            // Botón Cancelar
             TextButton(
               onPressed: () {
-                Navigator.of(ctx).pop(); // Cierra el diálogo sin hacer nada
+                Navigator.of(ctx).pop(); 
               },
               child: const Text("No, Cancelar", style: TextStyle(color: Colors.grey)),
             ),
-            // Botón Confirmar
             TextButton(
               onPressed: () {
-                Navigator.of(ctx).pop(); // Cierra el diálogo primero
-                _signOut(); // Ejecuta la salida real
+                Navigator.of(ctx).pop(); 
+                _signOut(); 
               },
               child: const Text("Sí, Cerrar Sesión", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
             ),
@@ -113,6 +123,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Intercepción del botón "Atrás" del sistema (Android) para garantizar
+    // que siempre se ejecute la lógica de retorno de parámetros (_goBack).
     return PopScope(
       canPop: false, 
       onPopInvoked: (didPop) {
@@ -133,6 +145,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Text("PREFERENCIAS DE ENTRENAMIENTO", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
             const SizedBox(height: 10),
             
+            // Configuración Local
             Card(
               elevation: 2,
               child: SwitchListTile(
@@ -152,6 +165,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Text("MI PERFIL (RANKING)", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
             const SizedBox(height: 10),
 
+            // Configuración de Identidad
             Card(
               elevation: 2,
               child: Padding(
@@ -193,14 +207,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Text("SESIÓN", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
             const SizedBox(height: 10),
 
-            // --- BOTÓN DE CERRAR SESIÓN (Ahora llama a _confirmSignOut) ---
+            // Zona de Peligro / Logout
             Card(
               elevation: 2,
               color: Colors.red[50],
               child: ListTile(
                 leading: const Icon(Icons.logout, color: Colors.red),
                 title: const Text("Cerrar Sesión", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                onTap: _confirmSignOut, // <--- AQUÍ ESTÁ EL CAMBIO
+                onTap: _confirmSignOut, 
               ),
             ),
             

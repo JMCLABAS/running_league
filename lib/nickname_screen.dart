@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // <--- IMPORTANTE
+import 'package:cloud_firestore/cloud_firestore.dart'; 
 
+/// Pantalla de Onboarding para configuración de perfil.
+/// Se asegura de que cada usuario tenga un identificador público (nickname)
+/// necesario para las tablas de clasificación.
 class NicknameScreen extends StatefulWidget {
   const NicknameScreen({super.key});
 
@@ -14,6 +17,9 @@ class _NicknameScreenState extends State<NicknameScreen> {
   bool _isLoading = false;
   final _formKey = GlobalKey<FormState>();
 
+  /// Persiste la identidad del usuario en dos capas:
+  /// 1. Firebase Auth Profile: Para acceso rápido en sesión local.
+  /// 2. Firestore 'users' collection: Para indexación pública en rankings y búsquedas.
   Future<void> _saveNickname() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -25,24 +31,24 @@ class _NicknameScreenState extends State<NicknameScreen> {
 
       String nickname = _controller.text.trim();
 
-      // 1. Guardar en el perfil privado de Auth (Lo que ya hacías)
+      // Capa 1: Actualización de metadatos de sesión (Auth)
       await user.updateDisplayName(nickname);
-      await user.reload(); // Recargar para asegurar que se aplica
+      await user.reload(); 
 
-      // 2. GUARDAR EN FIRESTORE (LA FICHA PÚBLICA PARA EL RANKING)
-      // Esto crea o actualiza el documento en la colección 'users'
+      // Capa 2: Sincronización con Base de Datos Pública (Firestore)
+      // Utilizamos SetOptions(merge: true) como estrategia de UPSERT idempotente.
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'displayName': nickname,
         'email': user.email,
-        'photoURL': user.photoURL, // Si tienen foto de Google, la guardamos también
+        'photoURL': user.photoURL, 
         'lastUpdated': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true)); // 'merge: true' evita borrar otros datos si existieran
+      }, SetOptions(merge: true)); 
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("¡Perfil creado correctamente! 🚀")),
         );
-        // Volvemos a la pantalla anterior (o al Home si es la primera vez)
+        // Finalización del flujo de onboarding
         Navigator.pop(context);
       }
     } catch (e) {

@@ -1,6 +1,9 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
+/// Gestor de persistencia local (SQLite).
+/// Implementa el patrón Singleton para garantizar una única instancia de conexión
+/// a la base de datos durante el ciclo de vida de la aplicación.
 class DBHelper {
   static final DBHelper _instance = DBHelper._internal();
   static Database? _database;
@@ -9,6 +12,7 @@ class DBHelper {
 
   DBHelper._internal();
 
+  /// Accesor asíncrono que asegura la inicialización perezosa (lazy loading) de la DB.
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDB();
@@ -17,9 +21,10 @@ class DBHelper {
 
   Future<Database> _initDB() async {
     String path = join(await getDatabasesPath(), 'running_league.db');
+    
     return await openDatabase(
       path,
-      version: 2, // Subimos la versión por si acaso
+      version: 2, 
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE runs(
@@ -36,7 +41,9 @@ class DBHelper {
           )
         ''');
       },
-      // Esto borra la tabla vieja si detecta una versión nueva (útil para desarrollo)
+      // Gestión de Migraciones:
+      // Estrategia de "Reinicio Destructivo" para la versión 2.
+      // En producción, esto debería reemplazarse por scripts ALTER TABLE para preservar datos.
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await db.execute("DROP TABLE IF EXISTS runs");
@@ -59,7 +66,8 @@ class DBHelper {
     );
   }
 
-  // Guardar carrera (ahora requiere userId en el mapa)
+  /// Persiste una nueva actividad localmente.
+  /// Utiliza `ConflictAlgorithm.replace` para manejar duplicados como UPSERT.
   Future<void> insertRun(Map<String, dynamic> run) async {
     final db = await database;
     await db.insert(
@@ -69,19 +77,20 @@ class DBHelper {
     );
   }
 
-  // Obtener SOLO las carreras del usuario actual
+  /// Recupera el historial de carreras filtrado por usuario.
+  /// Implementa aislamiento de datos a nivel de consulta para soportar múltiples sesiones en el mismo dispositivo.
   Future<List<Map<String, dynamic>>> getUserRuns(String userId) async {
     final db = await database;
-    // El "WHERE userId = ?" es el filtro de seguridad
+    
     return await db.query(
       'runs',
-      where: 'userId = ?',
+      where: 'userId = ?', // Filtro de aislamiento por tenant/usuario
       whereArgs: [userId],
-      orderBy: 'date DESC', // Las más recientes primero
+      orderBy: 'date DESC',
     );
   }
   
-  // Borrar una carrera específica
+  /// Elimina un registro específico basado en su clave primaria.
   Future<void> deleteRun(int id) async {
     final db = await database;
     await db.delete(
